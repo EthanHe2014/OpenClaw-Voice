@@ -8,7 +8,7 @@ the page polls.
 
 Run: ./.venv/bin/python spark_web.py
 """
-import os, sys, json, time, threading, subprocess, tempfile, wave, re, urllib.parse
+import os, sys, json, time, threading, subprocess, tempfile, wave, re, urllib.parse, sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 
@@ -786,6 +786,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 td{padding:4px 8px;border-bottom:1px solid #16202f}
 .k{color:#7c8aa5}.WAKE{color:var(--gr)}.ERROR{color:var(--rd)}.INFO{color:#7c8aa5}
 .STT{color:var(--am)}.REPLY{color:var(--gr)}
+.tsk-new{color:var(--am)}
+.tk-st{padding:1px 6px;border-radius:5px;font-size:11px;border:1px solid #1e293b;color:#7c8aa5}
+.tk-st.pending{color:var(--cy);border-color:#155e75}
+.tk-st.completed{color:var(--gr);border-color:#065f46}
+.tk-st.cancelled{color:var(--rd);border-color:#7f1d1d}
+.rownew{animation:hl 3s ease-out}
+@keyframes hl{0%{background:#1d2a1f}100%{background:transparent}}
 .btn{appearance:none;border:1px solid #1e293b;background:#0d1420;color:var(--cy);font:inherit;font-size:12px;padding:5px 14px;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;margin-left:10px;vertical-align:middle}
 .btn:hover{background:#132033;border-color:var(--cy)}
 .btn:active{transform:translateY(1px)}
@@ -814,6 +821,8 @@ margin-right:8px;animation:p 1.4s infinite}@keyframes p{50%{opacity:.35}}
     <div class=sub>spark said: <span id=rp>—</span></div></div>
   <div class=pan wide><div class=lbl>recent events<button class=btn id=copyev>Copy events</button><span class=copystat id=copystat></span></div>
     <div id=evwrap style="user-select:text;-webkit-user-select:text"><table id=ev></table></div></div>
+  <div class=pan wide><div class=lbl>tasks <span id=taskcount class=sub style="text-transform:none;letter-spacing:0"></span></div>
+    <table id=tk></table></div>
   <div class=pan wide><div class=sub id=stat></div></div>
 </div>
 <script>
@@ -839,6 +848,24 @@ async function tick(){
     evEl._text=s.events.slice().reverse().map(e=>e.t+'  '+e.kind+'  '+e.detail).join(String.fromCharCode(10));
     document.getElementById('stat').textContent='serving on http://127.0.0.1:8770';
   }catch(e){document.getElementById('mic').textContent='disconnected: '+(e&&e.message?e.message:e);}
+  try{
+    const r2=await fetch('/tasks?'+Date.now(),{cache:'no-store'}); const t=await r2.json();
+    document.getElementById('taskcount').textContent=t.today+' new today · '+t.count+' total';
+    const seen=window._seenTasks||(window._seenTasks={});
+    let html='';
+    for(const x of (t.tasks||[])){
+      const isNew=!seen[x.task_id] && window._tasksInit; seen[x.task_id]=1;
+      html+='<tr class="'+(isNew?'rownew':'')+'">'
+        +'<td class=k>#'+x.task_id+'</td>'
+        +'<td>'+String(x.content||'').replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>'+String(x.trigger_time||'')+'</td>'
+        +'<td><span class="tk-st '+x.status+'">'+x.status+'</span></td>'
+        +'<td class=k>'+String(x.created_at||'').slice(5,16)+'</td></tr>';
+    }
+    const el=document.getElementById('tk');
+    if(el._html!==html){ el.innerHTML=html||'<tr><td class=k>no tasks yet</td></tr>'; el._html=html; }
+    window._tasksInit=true;
+  }catch(e){}
 }
 const _sb=document.getElementById('stopbtn');
 _sb.addEventListener('click',async()=>{
@@ -862,6 +889,29 @@ _cb.addEventListener('click',async()=>{
 });
 setInterval(tick,300);tick();
 </script></body></html>"""
+
+# --- task DB (read-only) so the dashboard can show new tasks ---
+TASKS_DB = _cfg("tasks_db", os.path.join(ROOT, "data", "openmemo.db"))
+
+def read_tasks(limit=60):
+    """Newest tasks from the scheduler DB (read-only). Returns (tasks, today_count)."""
+    if not os.path.exists(TASKS_DB):
+        return [], 0
+    try:
+        conn = sqlite3.connect(TASKS_DB, timeout=2)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT task_id,content,trigger_time,status,priority,created_at,reminder_sent,is_recurring "
+            "FROM tasks WHERE deleted_at IS NULL "
+            "ORDER BY created_at DESC, task_id DESC LIMIT ?", (limit,)).fetchall()
+        today = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL AND substr(created_at,1,10)=date('now','localtime')"
+        ).fetchone()[0]
+        conn.close()
+        return [dict(r) for r in rows], today
+    except Exception:
+        return [], 0
+
 
 def say_external(text):
     """Speak exact text on request from another process (e.g. the task engine's
@@ -915,6 +965,13 @@ class H(BaseHTTPRequestHandler):
             body = b'{"ok":true}'
             self.send_response(200); self.send_header("Content-Type","application/json")
             self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
+        if path == "/tasks":
+            tasks, today = read_tasks()
+            body = json.dumps({"tasks": tasks, "count": len(tasks), "today": today}).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
             return
         if path == "/state":
