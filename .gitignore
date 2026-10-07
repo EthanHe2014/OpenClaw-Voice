@@ -44,3 +44,7 @@ Logs/
 voice_samples/
 *.bak
 *.bak[0-9]*
+
+# --- task engine ---
+.env
+data/
