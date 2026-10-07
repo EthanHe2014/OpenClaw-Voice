@@ -734,6 +734,7 @@ def mic_loop():
                 # (no log, no agent call, no credits).
                 if is_noise_only(text):
                     add_event("INFO", f"non-speech tag ignored: {text[:40]}")
+                    play_cached("missed")        # error.wav cue
                     with LOCK: STATE["state"] = "idle"
                     continue
                 log_turn(text)
