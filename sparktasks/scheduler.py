@@ -260,7 +260,18 @@ def start_scheduler():
     cleanup_tick()
     _json_safe_add(cleanup_tick, IntervalTrigger(hours=6),
                    id="cleanup_finished_tasks", replace_existing=True, max_instances=1)
-    print("[调度器] 巡检(5m) + 清理(6h) 已启动", flush=True)
+
+    # L1/L2 盘点：每 60 秒核对 用户输入 vs 任务库 vs 待处理收件箱
+    def monitor_tick():
+        try:
+            from .monitor import run_checks
+            run_checks()
+        except Exception as e:
+            print(f"[监控] 出错：{e}", flush=True)
+
+    _json_safe_add(monitor_tick, IntervalTrigger(seconds=60),
+                   id="landing_checks", replace_existing=True, max_instances=1)
+    print("[调度器] 巡检(5m) + 清理(6h) + L1/L2盘点(60s) 已启动", flush=True)
 
 
 def stop_scheduler():

@@ -89,6 +89,21 @@ def add_event(kind, detail):
         if kind == "WAKE":
             STATE["last_wake"] = STATE["events"][-1]["t"]
 
+TURNS_FILE = os.path.join(ROOT, "voice_turns.jsonl")
+
+def log_turn(text):
+    """Append each user utterance to a turn log the task engine's monitor reads
+    (L1/L2 landing checks). Timestamped so the engine can match it to created tasks."""
+    if not text:
+        return
+    try:
+        with open(TURNS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": time.time(),
+                                "iso": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "text": text}, ensure_ascii=False) + "\n")
+    except Exception as e:
+        add_event("ERROR", f"turn log: {e}")
+
 def _valid_input(pa, i):
     try:
         d = pa.get_device_info_by_index(i)
@@ -705,6 +720,7 @@ def mic_loop():
                 text = transcribe_audio(p)
                 with LOCK: STATE["last_transcript"] = text
                 add_event("STT", text or "(empty)")
+                log_turn(text)
                 low = (text or "").lower()
                 if (not text) or "[blank_audio]" in low or low.strip(" .!?,") == "":
                     add_event("INFO", "blank/empty transcript - ignored")

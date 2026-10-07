@@ -49,3 +49,6 @@ voice_samples/
 .env
 data/
 voice_inbox/
+voice_turns.jsonl
+voice_landing.state.json
+voice_alerts.log
