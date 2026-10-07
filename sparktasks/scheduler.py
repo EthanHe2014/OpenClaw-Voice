@@ -154,24 +154,33 @@ def _next_occurrence(task: dict, recurring: str):
 
 
 def schedule_task(task_id: int, trigger_time: str) -> bool:
-    """安排任务提醒。True=已调度，False=时间已过跳过。"""
+    """安排任务提醒。True=已调度，False=时间格式无效。
+    时间已过（含刚过）→ 立即触发，绝不静默丢弃。"""
     try:
         dt = datetime.strptime(str(trigger_time), "%Y-%m-%d %H:%M")
-        if dt <= datetime.now():
-            print(f"[调度器] 任务 {task_id} 的时间已过，跳过", flush=True)
-            return False
-        scheduler.add_job(
-            reminder_callback,
-            trigger=DateTrigger(run_date=dt),
-            args=[task_id],
-            id=f"task_{task_id}",
-            replace_existing=True,
-        )
-        print(f"[调度器] 已安排任务 {task_id}，提醒时间：{trigger_time}", flush=True)
-        return True
     except ValueError as e:
         print(f"[调度器] 任务 {task_id} 时间格式无效：{e}", flush=True)
         return False
+    now = datetime.now()
+    if dt <= now:
+        # 时间已到/已过：立即触发（不能让它变成永不触发的僵尸任务）
+        print(f"[调度器] 任务 {task_id} 时间已过，立即触发", flush=True)
+        scheduler.add_job(
+            reminder_callback,
+            args=[task_id],
+            id=f"task_{task_id}_overdue",
+            replace_existing=True,
+        )
+        return True
+    scheduler.add_job(
+        reminder_callback,
+        trigger=DateTrigger(run_date=dt),
+        args=[task_id],
+        id=f"task_{task_id}",
+        replace_existing=True,
+    )
+    print(f"[调度器] 已安排任务 {task_id}，提醒时间：{trigger_time}", flush=True)
+    return True
 
 
 def load_existing_tasks():
@@ -202,7 +211,7 @@ def load_existing_tasks():
 
 
 def reconcile_jobs() -> int:
-    """巡检：待办任务缺 job 就补排。"""
+    """巡检：待办任务缺 job 就补排；已过时间但未触发的，立即补触发。"""
     fixed = 0
     now = datetime.now()
     for t in task_manager.list_tasks(status="pending", limit=200):
@@ -213,13 +222,19 @@ def reconcile_jobs() -> int:
             dt = datetime.strptime(str(tt), "%Y-%m-%d %H:%M")
         except (ValueError, TypeError):
             continue
-        if dt <= now:
-            continue
-        if scheduler.get_job(f"task_{t['task_id']}") is None:
-            schedule_task(t["task_id"], str(tt))
-            fixed += 1
+        has_job = (scheduler.get_job(f"task_{t['task_id']}") is not None
+                   or scheduler.get_job(f"task_{t['task_id']}_overdue") is not None)
+        if dt > now:
+            if not has_job:
+                schedule_task(t["task_id"], str(tt))
+                fixed += 1
+        else:
+            # 时间已过但还没触发 → 立即补触发（防僵尸任务静默失败）
+            if not has_job and not t.get("reminder_sent"):
+                schedule_task(t["task_id"], str(tt))
+                fixed += 1
     if fixed:
-        print(f"[调度器] 巡检补排 {fixed} 个缺失的提醒 job", flush=True)
+        print(f"[调度器] 巡检补排 {fixed} 个提醒 job", flush=True)
     return fixed
 
 
