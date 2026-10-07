@@ -1,0 +1,46 @@
+# --- secrets (never commit) ---
+.hook_token
+.gateway_token
+spark_config.json
+
+# --- models & binaries (you provide your own) ---
+models/
+wake_models/
+*.onnx
+*.onnx.data
+*.tflite
+sr_test
+sr_test.swift
+
+# --- runtime state ---
+voice_reply.txt
+voice_inbox.jsonl
+voice_processed.txt
+voice_outbox/
+*.log
+*.err
+*.out
+wake_train_status.json
+
+# --- envs / caches ---
+.venv/
+venv/
+train_venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# --- training scratch (large, regenerate with Training/) ---
+wake_training/
+
+# --- local audio captures ---
+capture_*.wav
+last_capture.wav
+latest_capture.wav
+
+# --- local clutter (keep on disk, not in the repo) ---
+Backups/
+Logs/
+voice_samples/
+*.bak
+*.bak[0-9]*

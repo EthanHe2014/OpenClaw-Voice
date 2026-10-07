@@ -1,0 +1,12 @@
+# Spark voice assistant — Python dependencies
+# Tested with Python 3.11–3.14 on macOS.
+pyaudio>=0.2.14
+openwakeword>=0.6.0
+numpy>=1.26
+onnxruntime>=1.17
+edge-tts>=7.0
+scipy>=1.11
+
+# Optional: only if you use the streaming sherpa-onnx endpointing path
+# (spark_config.json -> sr_model_dir). Not required for the default setup.
+# sherpa-onnx>=1.10

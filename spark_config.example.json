@@ -1,0 +1,39 @@
+{
+  "_comment": "Copy to spark_config.json and edit. Values here are the defaults.",
+
+  "mic_name_substr": "USB PnP",
+  "mic_index_fallback": 2,
+  "force_mic_index": null,
+
+  "native_rate": 48000,
+  "rate": 16000,
+  "frame_ms": 80,
+
+  "wake_model": "wake_models/hey_spark.onnx",
+  "wake_threshold": 0.3,
+
+  "port": 8770,
+
+  "silence_ms": 3000,
+  "max_utter_s": 20.0,
+  "confirm_word": "",
+
+  "stt_engine": "macos",
+  "stt_language": "en",
+  "whisper_bin": "whisper-cli",
+  "whisper_model": "models/ggml-base.bin",
+  "sr_bin": "sr_test",
+  "sr_model_dir": "",
+
+  "voice": "en-US-AvaNeural",
+  "tts_fallback": "say",
+
+  "gateway_url": "http://127.0.0.1:18789",
+  "hook_path": "/hooks/voice",
+  "agent_id": "spark",
+  "session_key": "",
+  "hook_token_file": ".hook_token",
+  "reply_file": "voice_reply.txt",
+
+  "proxy": ""
+}

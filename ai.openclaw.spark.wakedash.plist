@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/Ethan/Desktop/Projects/Spark Voice/.venv/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>PYTHONPATH</key>
+		<string>/Users/Ethan/Desktop/Projects/Spark Voice/.venv/lib/python3.14/site-packages</string>
+		<key>VIRTUAL_ENV</key>
+		<string>/Users/Ethan/Desktop/Projects/Spark Voice/.venv</string>
+		<key>all_proxy</key>
+		<string>socks5://127.0.0.1:7897</string>
+		<key>http_proxy</key>
+		<string>http://127.0.0.1:7897</string>
+		<key>https_proxy</key>
+		<string>http://127.0.0.1:7897</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>ai.openclaw.spark.wakedash</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/opt/python@3.14/bin/python3.14</string>
+		<string>-u</string>
+		<string>/Users/Ethan/Desktop/Projects/Spark Voice/wake_dash.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/Ethan/Library/Logs/spark-voice/wakedash.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/Ethan/Library/Logs/spark-voice/wakedash.out</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/Ethan/Desktop/Projects/Spark Voice</string>
+</dict>
+</plist>
