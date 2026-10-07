@@ -104,6 +104,14 @@ def log_turn(text):
     except Exception as e:
         add_event("ERROR", f"turn log: {e}")
 
+# Speech recognizers tag non-speech with brackets: "(bell ding)", "(music)", "[noise]".
+# A transcript that is ONLY such tag(s) is noise, not the user talking — drop it
+# before logging or sending, so it never costs credits.
+_NOISE_ONLY_RE = re.compile(r'^\s*(?:[\(\[\{][^\)\]\}]*[\)\]\}]\s*)+[.!?,;:\s]*$')
+
+def is_noise_only(text):
+    return bool(text) and bool(_NOISE_ONLY_RE.match(text))
+
 def _valid_input(pa, i):
     try:
         d = pa.get_device_info_by_index(i)
@@ -720,8 +728,15 @@ def mic_loop():
                 text = transcribe_audio(p)
                 with LOCK: STATE["last_transcript"] = text
                 add_event("STT", text or "(empty)")
-                log_turn(text)
                 low = (text or "").lower()
+                # Noise guard: a transcript that is ONLY a bracketed tag like
+                # "(bell ding)" / "(music)" is non-speech — ignore it entirely
+                # (no log, no agent call, no credits).
+                if is_noise_only(text):
+                    add_event("INFO", f"non-speech tag ignored: {text[:40]}")
+                    with LOCK: STATE["state"] = "idle"
+                    continue
+                log_turn(text)
                 if (not text) or "[blank_audio]" in low or low.strip(" .!?,") == "":
                     add_event("INFO", "blank/empty transcript - ignored")
                     play_cached("missed")
