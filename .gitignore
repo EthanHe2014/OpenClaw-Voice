@@ -48,3 +48,4 @@ voice_samples/
 # --- task engine ---
 .env
 data/
+voice_inbox/

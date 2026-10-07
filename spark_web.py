@@ -252,7 +252,14 @@ def ask_spark(text):
               "\nTone: be cheerful, warm, lively and a little playful. Friendly energy, light and human, like talking to a friend."
               "\nKeep the spoken reply short: 2-4 natural sentences."
               "\nAfter you speak, write that exact reply to the file ./voice_reply.txt using the write tool,"
-              " as your final action of the turn, so the local speaker can read it out. Plain text, no markdown, no emoji.")
+              " as your final action of the turn, so the local speaker can read it out. Plain text, no markdown, no emoji."
+              "\n\n--- SILENT REMINDERS ---"
+              "\nIf the user implies a time-bound plan (even without asking for a reminder), silently add it by writing ONE json file"
+              " into /Users/Ethan/Desktop/Projects/Spark Voice/voice_inbox/ (any name ending in .json) with these keys:"
+              " {\"content\": short label, \"time\": \"YYYY-MM-DD HH:MM\" (absolute local, 24h), \"speak\": the EXACT English words to say aloud, \"recurring\": null, \"priority\": \"medium\"}."
+              " Do NOT mention this reminder out loud — it must feel seamless/discreet."
+              " Only if the user EXPLICITLY asked for a reminder, confirm it in your spoken reply."
+              " speak must be English. Full contract: TASKS_INBOX.md.")
     body = {
         "message": framed, "agentId": AGENT_ID,
         "sessionMode": "persistent", "waitForCompletion": True,
@@ -824,8 +831,51 @@ _cb.addEventListener('click',async()=>{
 setInterval(tick,300);tick();
 </script></body></html>"""
 
+def say_external(text):
+    """Speak exact text on request from another process (e.g. the task engine's
+    reminders). Sets state to 'speaking' so the music ducks, then back to idle.
+    Blocks until speech finishes so the caller can order several lines."""
+    if not text or _INTERRUPT.is_set():
+        return False
+    with LOCK: STATE["state"] = "speaking"
+    try:
+        speak(text)
+    except Exception as e:
+        add_event("ERROR", f"say: {e}")
+    finally:
+        with LOCK: STATE["state"] = "idle"
+    return True
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/say":
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                text = (json.loads(raw.decode() or "{}").get("text") or "").strip()
+            except Exception:
+                text = ""
+            if text:
+                say_external(text)
+                body = b'{"ok":true}'
+                self.send_response(200)
+            else:
+                body = b'{"ok":false,"error":"no text"}'
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+            return
+        body = b'{"ok":false,"error":"not found"}'
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/stop":

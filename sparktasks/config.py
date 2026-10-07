@@ -42,7 +42,7 @@ SEARCH_API_KEY = os.getenv("SEARCH_API_KEY", "")
 SEARCH_BASE_URL = os.getenv("SEARCH_BASE_URL", "")
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "18890"))
-TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AvaNeural")
 
 # ── 可配置项清单（App/CLI 可改）──────────────────────────────
 # key: (env 变量名, 默认值, 说明, 是否敏感)
@@ -53,7 +53,7 @@ CONFIG_KEYS = {
     "search_provider": ("SEARCH_PROVIDER", "", "搜索提供商（tavily/brave/serper/custom）", False),
     "search_api_key": ("SEARCH_API_KEY", "", "搜索 API 密钥", True),
     "search_base_url": ("SEARCH_BASE_URL", "", "搜索接口地址", False),
-    "tts_voice":      ("TTS_VOICE", "zh-CN-XiaoxiaoNeural", "语音角色（Edge TTS）", False),
+    "tts_voice":      ("TTS_VOICE", "en-US-AvaNeural", "语音角色（Edge TTS，英文）", False),
     "fallback_ai_base_url": ("FALLBACK_AI_BASE_URL", "http://127.0.0.1:18080/v1", "AI 主服务失败时的降级地址（本地模型）", False),
     "fallback_ai_model":   ("FALLBACK_AI_MODEL", "claude-3-opus", "降级模型名（本地 llama-server 的模型别名）", False),
 }
@@ -143,7 +143,7 @@ def ai_api_key():
 
 
 def tts_voice():
-    return get_setting("tts_voice") or "zh-CN-XiaoxiaoNeural"
+    return get_setting("tts_voice") or "en-US-AvaNeural"
 
 
 def search_provider():
