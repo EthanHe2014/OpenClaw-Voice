@@ -49,23 +49,30 @@ TTS_FALLBACK = _cfg("tts_fallback", "say")
 
 
 def transcribe_macos(wav_path):
-    """Transcribe with the Mac's own Speech framework (accurate for usage here)."""
+    """Transcribe with the Mac's own Speech framework (accurate for usage here).
+    Returns the text (possibly "" for silence/no-speech), or None if the tool
+    itself failed to run — so the caller can tell 'no speech' from 'unavailable'."""
     try:
-        r = subprocess.run([MACOS_SR_BIN, wav_path], capture_output=True, text=True, timeout=40)
+        r = subprocess.run([MACOS_SR_BIN, wav_path], capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            add_event("ERROR", f"macos sr rc={r.returncode}: {(r.stderr or '').strip()[:80]}")
+            return None
         return (r.stdout or "").strip()
     except Exception as e:
         add_event("ERROR", f"macos sr: {e}")
-        return ""
+        return None
 
 
 def transcribe_audio(wav_path):
-    """Dispatch to the configured STT engine, with graceful fallback."""
+    """Dispatch to the configured STT engine, with graceful fallback.
+    In macos mode an EMPTY result means 'no speech' and is returned as-is;
+    we only fall back to whisper when the Apple recognizer could not run."""
     if STT_ENGINE == "whisper":
         return transcribe(wav_path)
     txt = transcribe_macos(wav_path)
-    if not txt:                      # Apple Speech unavailable -> try whisper
+    if txt is None:                  # Apple Speech unavailable -> try whisper
         txt = transcribe(wav_path)
-    return txt
+    return txt or ""
 AGENT_ID = _cfg("agent_id", "spark")
 REPLY_FILE = _cfg("reply_file", os.path.join(ROOT, "voice_reply.txt"))
 HOOK_URL = _cfg("hook_url", "http://127.0.0.1:18789/hooks/voice/agent")
@@ -166,7 +173,7 @@ def transcribe(path):
     try:
         r = subprocess.run([WHISPER_BIN, "-m", WHISPER_MODEL, "-f", path,
                             "-l", STT_LANG, "-nt", "-np"],
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=20)
         return (r.stdout or "").strip()
     except Exception as e:
         add_event("ERROR", f"whisper: {e}"); return ""
