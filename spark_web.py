@@ -119,22 +119,39 @@ def _valid_input(pa, i):
     except Exception:
         return False, ""
 
-def find_mic(pa):
-    # 0) explicit override, only if that index really is an input
+def input_candidates(pa):
+    """Capturable input device indexes, best-first: explicit override, then the
+    configured name match, then ANY other input device, then the fallback."""
+    cands = []
     if FORCE_MIC_INDEX is not None:
-        ok, nm = _valid_input(pa, FORCE_MIC_INDEX)
+        ok, _ = _valid_input(pa, FORCE_MIC_INDEX)
         if ok:
-            return FORCE_MIC_INDEX, nm
-    # 1) prefer the named USB mic
+            cands.append(FORCE_MIC_INDEX)
+    sub = (MIC_SUBSTR or "").strip().lower()
+    if sub:
+        for i in range(pa.get_device_count()):
+            if i in cands:
+                continue
+            d = pa.get_device_info_by_index(i)
+            if d.get("maxInputChannels", 0) > 0 and sub in d.get("name", "").lower():
+                cands.append(i)
+    # ANY device that can actually capture audio (no name filtering)
     for i in range(pa.get_device_count()):
+        if i in cands:
+            continue
         d = pa.get_device_info_by_index(i)
-        if d.get("maxInputChannels",0) > 0 and MIC_SUBSTR.lower() in d.get("name","").lower():
-            return i, d.get("name")
-    # 2) if it moved/was renamed, take the first real input device (never a blind index)
-    for i in range(pa.get_device_count()):
-        d = pa.get_device_info_by_index(i)
-        if d.get("maxInputChannels",0) > 0 and "input" not in d.get("name","").lower():
-            return i, d.get("name")
+        if d.get("maxInputChannels", 0) > 0:
+            cands.append(i)
+    if FALLBACK not in cands:
+        cands.append(FALLBACK)
+    return cands
+
+def find_mic(pa):
+    """First usable input device, best-first."""
+    for i in input_candidates(pa):
+        ok, nm = _valid_input(pa, i)
+        if ok:
+            return i, nm
     return FALLBACK, "(fallback)"
 
 def resample(a, src):
@@ -662,18 +679,30 @@ def capture_from(buf, timeout_frames=None, preroll=None):
 
 def mic_loop():
     pa = pyaudio.PyAudio()
-    idx, name = find_mic(pa)
+    model = Model(wakeword_models=[WAKE], inference_framework="onnx")
+    CH = int(NATIVE*FRAME_MS/1000)
+    # Try every capturable input, best-first, until one actually opens (ANY mic).
+    stream = None; idx = None; name = ""
+    for i in input_candidates(pa):
+        ok, nm = _valid_input(pa, i)
+        if not ok:
+            continue
+        try:
+            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=NATIVE,
+                             input=True, input_device_index=i, frames_per_buffer=CH)
+            idx, name = i, nm
+            break
+        except Exception as e:
+            add_event("WARN", f"mic [{i}] {nm} failed: {e}")
+            stream = None
+    if stream is None:
+        add_event("ERROR", "no usable input device found")
+        with LOCK:
+            STATE["mic_index"] = None; STATE["mic_name"] = "(none)"
+        return
     with LOCK:
         STATE["mic_index"] = idx; STATE["mic_name"] = name
     add_event("INFO", f"mic opened: [{idx}] {name}")
-    model = Model(wakeword_models=[WAKE], inference_framework="onnx")
-    CH = int(NATIVE*FRAME_MS/1000)
-    try:
-        stream = pa.open(format=pyaudio.paInt16, channels=1, rate=NATIVE,
-                         input=True, input_device_index=idx, frames_per_buffer=CH)
-    except Exception as e:
-        add_event("ERROR", f"could not open mic: {e}")
-        return
     add_event("INFO", f"listening for wakeword '{os.path.basename(WAKE).replace('.onnx','').replace('_',' ')}'")
     while True:
         try:
