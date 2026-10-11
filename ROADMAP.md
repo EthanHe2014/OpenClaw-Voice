@@ -17,7 +17,7 @@ Rules for builders:
 
 ## Backlog — tools to build (Tier A/B)
 
-- [~] builder-E **notes** — capture a note to a dated file; tool `note(command=add|list|read, text=...)`
+- [x] builder-E **notes** — capture a note to a dated file; tool `note(command=add|list|read, text=...)`
 - [ ] **todo** — add/list/complete items in a local JSON list; tool `todo(command=add|list|done, item=...)`
 - [ ] **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
 - [ ] **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
@@ -61,3 +61,4 @@ Rules for builders:
 - [x] clock — done (v0.2.0, tools-only)
 - [x] calculator — done (v0.2.0, tools-only, model normalizes expr)
 - [x] music — done (v0.2.0, tools-only: play/stop/volume)
+- [x] builder-E **notes** — done (v0.1.0, tools-only: add/list/read, dated file)
