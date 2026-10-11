@@ -1,0 +1,12 @@
+{
+  "id": "clock",
+  "name": "Clock & Time",
+  "version": "0.1.0",
+  "description": "Answers time/date questions instantly, without troubling the agent.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["speak", "log"],
+  "hooks": ["on_transcript"],
+  "config": { "timezone": "Asia/Shanghai" }
+}
