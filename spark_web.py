@@ -89,6 +89,12 @@ STATE = {
 }
 LOCK = threading.Lock()
 
+# Extension framework + watcher router (populated by init_extensions() at startup).
+# Both stay None if the framework fails to load - the pipeline then behaves
+# exactly as before, which is the safety invariant.
+EXT_MGR = None
+BRIDGE = None
+
 def add_event(kind, detail):
     with LOCK:
         STATE["events"].append({"t": time.strftime("%H:%M:%S"), "kind": kind, "detail": detail})
@@ -856,6 +862,16 @@ def mic_loop():
                     if CONFIRM_WORD and CONFIRM_WORD not in text.lower():
                         with LOCK: STATE["state"] = "idle"
                         continue
+                    # --- extensions: deterministic hooks first, then the watcher ---
+                    if EXT_MGR:
+                        _t = EXT_MGR.dispatch_text("on_transcript", text)
+                        if _t == "":
+                            add_event("INFO", "handled by extension")
+                            with LOCK: STATE["state"] = "idle"
+                            continue
+                        text = _t or text
+                    if BRIDGE:
+                        text, _wres, _wroute = BRIDGE.process(text)
                     with LOCK: STATE["state"] = "thinking"
                     start_thinking_loop()          # hum evenly while we wait
                     reply = ask_spark(text)
@@ -1189,8 +1205,51 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Pragma","no-cache"); self.send_header("Expires","0")
             self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
 
+def init_extensions():
+    """Load extensions and start the watcher router. Guarded: any failure just
+    leaves EXT_MGR/BRIDGE as None and the pipeline behaves as before."""
+    global EXT_MGR, BRIDGE
+    try:
+        from sparkext import Manager, Registry, Watcher, Bridge
+        EXT_MGR = Manager(
+            root=os.path.join(ROOT, "extensions"),
+            data_root=os.path.join(ROOT, "data", "extensions"),
+            host={"emit": add_event, "speak": speak, "ask_agent": ask_spark},
+            emit=add_event)
+        EXT_MGR.load_all(force=True)
+        reg = Registry().collect_from(EXT_MGR)
+        watcher = Watcher(timeout=15.0)
+        if watcher.available():
+            # warm the local model so the first real turn is not slow
+            threading.Thread(target=lambda: watcher.route("warm up", reg.catalog()),
+                             daemon=True).start()
+        BRIDGE = Bridge(EXT_MGR, reg, watcher,
+                        log_path=os.path.join(ROOT, "voice_routes.jsonl"),
+                        emit=add_event)
+        add_event("INFO", f"extensions: {[s['name'] for s in reg.catalog()]}")
+        _start_ext_reload(EXT_MGR)
+    except Exception as e:
+        EXT_MGR = None; BRIDGE = None
+        add_event("ERROR", f"extensions init: {e}")
+
+
+def _start_ext_reload(mgr):
+    """Hot-reload extension folders on a timer; refresh the skill catalog."""
+    def _loop():
+        while True:
+            time.sleep(6.0)
+            try:
+                if mgr.reload_tick() and BRIDGE is not None:
+                    from sparkext import Registry
+                    BRIDGE.registry = Registry().collect_from(mgr)
+            except Exception:
+                pass
+    threading.Thread(target=_loop, daemon=True).start()
+
+
 if __name__ == "__main__":
     prewarm()
+    init_extensions()
     threading.Thread(target=mic_loop, daemon=True).start()
     print(f"Spark web dashboard: http://127.0.0.1:{PORT}")
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
