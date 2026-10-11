@@ -1214,7 +1214,7 @@ def init_extensions():
             host={"emit": add_event, "speak": speak, "ask_agent": ask_spark},
             emit=add_event)
         EXT_MGR.load_all(force=True)
-        reg = Registry().collect_from(EXT_MGR)
+        reg = Registry(emit=add_event).collect_from(EXT_MGR)
         watcher = Watcher(timeout=15.0)
         if watcher.available():
             # warm the local model so the first real turn is not slow
@@ -1238,7 +1238,7 @@ def _start_ext_reload(mgr):
             try:
                 if mgr.reload_tick() and BRIDGE is not None:
                     from sparkext import Registry
-                    BRIDGE.registry = Registry().collect_from(mgr)
+                    BRIDGE.registry = Registry(emit=add_event).collect_from(mgr)
             except Exception:
                 pass
     threading.Thread(target=_loop, daemon=True).start()

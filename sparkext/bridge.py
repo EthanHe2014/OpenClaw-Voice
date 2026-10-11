@@ -36,6 +36,7 @@ class Bridge:
                     "confidence": route.get("confidence"),
                     "actions": [a.get("skill") for a in route.get("actions", [])],
                     "handled": result.get("handled"),
+                    "failures": [f.get("skill") for f in result.get("failures", [])],
                     "notes": route.get("notes", ""),
                 }, ensure_ascii=False) + "\n")
         except Exception:
@@ -54,7 +55,7 @@ class Bridge:
             try:
                 if result.get("handled"):
                     self.emit("WATCHER", f"handled {result['handled']}")
-                else:
+                elif not result.get("failures"):
                     self.emit("WATCHER", f"no skills ({route.get('intent')})")
             except Exception:
                 pass
@@ -65,7 +66,9 @@ def format_for_agent(user_text, result):
     """Render the message OpenClaw actually receives: original words + a
     'already handled, don't redo' note + the tool output."""
     handled = result.get("handled") or []
-    if not handled:
+    failed = [f for f in result.get("failures", []) if f.get("error")
+              not in (None, "needs_confirmation")]
+    if not handled and not failed and not result.get("needs_confirmation"):
         return user_text
     lines = [user_text, ""]
     parts = []
@@ -77,10 +80,15 @@ def format_for_agent(user_text, result):
             out = r.get("data")
         parts.append(f"{r['skill']} -> {json.dumps(out, ensure_ascii=False)}"
                      if isinstance(out, (dict, list)) else f"{r['skill']} -> {out}")
-    lines.append("[WATCHER] tool already run - its output: " + "; ".join(parts) + ".")
-    lines.append("Do NOT call this tool again. YOU phrase the spoken reply yourself "
-                 "(short, natural, 2-4 sentences), using this output; also handle "
-                 "anything else the user asked.")
+    if parts:
+        lines.append("[WATCHER] tool already run - its output: " + "; ".join(parts) + ".")
+        lines.append("Do NOT call this tool again. YOU phrase the spoken reply yourself "
+                     "(short, natural, 2-4 sentences), using this output; also handle "
+                     "anything else the user asked.")
+    if failed:
+        detail = ", ".join(f"{f.get('skill')} ({f.get('error')})" for f in failed)
+        lines.append(f"[WATCHER] some tools FAILED and produced no output: {detail}. "
+                     "Tell the user briefly and, if useful, handle it yourself.")
     if result.get("needs_confirmation"):
         lines.append("Some actions need the user's confirmation first - ask for it, "
                      "do not assume.")

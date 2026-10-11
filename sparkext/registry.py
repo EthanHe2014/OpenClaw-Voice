@@ -32,11 +32,28 @@ def _validate_args(spec, args):
 
 
 class Registry:
-    def __init__(self):
+    def __init__(self, emit=None):
         self.skills = {}                # name -> Skill
+        self.emit = emit                # optional dashboard event callback
 
     def register(self, skill):
         self.skills[skill.name] = skill
+
+    def _event(self, kind, detail):
+        """Push a dashboard event; never raises into the pipeline."""
+        if not self.emit:
+            return
+        try:
+            self.emit(kind, detail)
+        except Exception:
+            pass
+
+    def _report(self, res):
+        """Make a failed skill visible: a dashboard event + a returned field."""
+        if not res.get("ok"):
+            self._event("WATCHER",
+                        f"skill failed: {res.get('skill')} ({res.get('error')})")
+        return res
 
     def collect_from(self, manager):
         """Pull each extension's declared skills (via its `skills` hook)."""
@@ -70,23 +87,26 @@ class Registry:
         sk = self.skills.get(name)
         t0 = time.time()
         if sk is None:
-            return {"skill": name, "ok": False, "error": "unknown_skill"}
-        ok, err = _validate_args(sk.args, action.get("args") or {})
-        if not ok:
-            return {"skill": name, "ok": False, "error": err["error"],
-                    "missing": err.get("missing", [])}
-        ctx = ctx_by_ext.get(sk.ext_id)
-        try:
-            out = sk.fn(action.get("args") or {}, ctx) or {}
-            out = dict(out)
-            out.setdefault("skill", name)
-            out["ok"] = out.get("ok", True)
-            out["ms"] = int((time.time() - t0) * 1000)
-            return out
-        except Exception as e:
-            return {"skill": name, "ok": False,
-                    "error": f"{type(e).__name__}: {e}",
-                    "ms": int((time.time() - t0) * 1000)}
+            res = {"skill": name, "ok": False, "error": "unknown_skill"}
+        else:
+            ok, err = _validate_args(sk.args, action.get("args") or {})
+            if not ok:
+                res = {"skill": name, "ok": False, "error": err["error"],
+                       "missing": err.get("missing", [])}
+            else:
+                ctx = ctx_by_ext.get(sk.ext_id)
+                try:
+                    out = sk.fn(action.get("args") or {}, ctx) or {}
+                    out = dict(out)
+                    out.setdefault("skill", name)
+                    out["ok"] = out.get("ok", True)
+                    out["ms"] = int((time.time() - t0) * 1000)
+                    res = out
+                except Exception as e:
+                    res = {"skill": name, "ok": False,
+                           "error": f"{type(e).__name__}: {e}",
+                           "ms": int((time.time() - t0) * 1000)}
+        return self._report(res)
 
     def run_route(self, route, manager):
         """Execute every action in order. Returns the RESULT document."""
@@ -95,9 +115,9 @@ class Registry:
         confirm_pending = False
         for i, action in enumerate(route.get("actions", [])):
             if action.get("missing"):
-                results.append({"skill": action["skill"], "ok": False,
-                                "error": "missing_args",
-                                "missing": action["missing"]})
+                results.append(self._report({"skill": action["skill"], "ok": False,
+                                             "error": "missing_args",
+                                             "missing": action["missing"]}))
                 continue
             if action.get("confirm"):
                 confirm_pending = True
@@ -116,6 +136,9 @@ class Registry:
 
 def _build_result(route, results, handled, confirm_pending):
     has_output = any(r.get("speak") for r in results if r.get("ok"))
+    failures = [{"skill": r.get("skill"), "error": r.get("error"),
+                 "missing": r.get("missing")}
+                for r in results if not r.get("ok")]
     if handled:
         bits = []
         for r in results:
@@ -132,6 +155,7 @@ def _build_result(route, results, handled, confirm_pending):
         "v": 1, "id": route.get("id"),
         "user_text": route.get("transcript", ""),
         "results": results, "handled": handled,
+        "failures": failures,
         "forward_to_agent": forward,
         "agent_note": note,
         "needs_confirmation": confirm_pending,
