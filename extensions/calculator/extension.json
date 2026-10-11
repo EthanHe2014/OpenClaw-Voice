@@ -1,0 +1,12 @@
+{
+  "id": "calculator",
+  "name": "Calculator",
+  "version": "0.1.0",
+  "description": "Evaluates arithmetic expressions safely and instantly.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["speak", "log"],
+  "hooks": ["on_transcript", "tools"],
+  "config": {}
+}
