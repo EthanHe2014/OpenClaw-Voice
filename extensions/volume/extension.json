@@ -1,0 +1,12 @@
+{
+  "id": "volume",
+  "name": "System Volume",
+  "version": "0.1.0",
+  "description": "Set, raise, lower, or mute the macOS output volume.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
