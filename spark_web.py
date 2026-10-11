@@ -337,14 +337,13 @@ def ask_spark(text):
                 _HOOK["resp"] = None
     except Exception as e:
         if _INTERRUPT.is_set():
-            add_event("INFO", "webhook dropped (stopped)"); return ""
+            return ""
         add_event("ERROR", f"hook: {e}"); return ""
     if _INTERRUPT.is_set():
-        add_event("INFO", "hook abandoned (stopped)"); return ""
+        return ""
     if not resp.get("ok"):
         add_event("ERROR", f"hook not ok: {resp.get('error','?')}"); return ""
     _last_run_id = resp.get("runId")
-    add_event("INFO", f"hook run {(_last_run_id or '')[:8]} accepted")
     # Read the newest assistant reply written AFTER we sent the request.
     return _read_last_reply(timeout=40, before_mtime=before_mtime)
 
@@ -624,7 +623,6 @@ def _get_sr():
             rule2_min_trailing_silence=1.6,
             rule3_min_utterance_length=0.3,
         )
-        add_event("INFO", "sherpa endpointing ready")
     except Exception as e:
         add_event("ERROR", f"sherpa load: {e}")
         _sr = None
@@ -792,7 +790,6 @@ def mic_loop():
             continue
         with LOCK:
             STATE["mic_index"] = idx; STATE["mic_name"] = name
-        add_event("INFO", f"mic opened: [{idx}] {name}")
         add_event("INFO", f"listening for wakeword '{os.path.basename(WAKE).replace('.onnx','').replace('_',' ')}'")
         _sig = _device_signature(pa)
         _gen = mic_ctl_generation()
@@ -804,14 +801,6 @@ def mic_loop():
                 rms = float(np.sqrt(np.mean(a*a)))
                 _pred = model.predict(resample(a, NATIVE))
                 score = float(max(_pred.values()) if _pred else 0.0)
-                # Debug: report strong-but-not-triggering scores so misses are visible.
-                _pk = STATE.get("_dbg_pk", 0.0)
-                if score > _pk:
-                    STATE["_dbg_pk"] = score
-                if time.time() - STATE.get("_dbg_t", 0) > 2.0:
-                    if STATE.get("_dbg_pk", 0.0) > 0.05:
-                        add_event("INFO", f"peak2s={STATE['_dbg_pk']:.3f}")
-                    STATE["_dbg_pk"] = 0.0; STATE["_dbg_t"] = time.time()
                 with LOCK:
                     STATE["frames"] += 1
                     STATE["rms"] = rms; STATE["rms_peak"] = max(STATE["rms_peak"], rms)
@@ -836,7 +825,6 @@ def mic_loop():
                     mkbuf.halt()
                     add_event("INFO", f"capture took {time.time()-_tcap:.2f}s")
                     if len(utt) < RATE * 0.3:
-                        add_event("INFO", "utterance too short")
                         with LOCK: STATE["state"] = "idle"
                         continue
                     with LOCK: STATE["state"] = "transcribing"
@@ -855,7 +843,6 @@ def mic_loop():
                     # "(bell ding)" / "(music)" is non-speech — ignore it entirely
                     # (no log, no agent call, no credits).
                     if is_noise_only(text):
-                        add_event("INFO", f"non-speech tag ignored: {text[:40]}")
                         play_cached("missed")        # error.wav cue
                         with LOCK: STATE["state"] = "idle"
                         continue
@@ -867,7 +854,6 @@ def mic_loop():
                         continue
                     # (single-word guard removed per request)
                     if CONFIRM_WORD and CONFIRM_WORD not in text.lower():
-                        add_event("INFO", f"confirm word '{CONFIRM_WORD}' missing - ignored")
                         with LOCK: STATE["state"] = "idle"
                         continue
                     with LOCK: STATE["state"] = "thinking"
@@ -876,8 +862,6 @@ def mic_loop():
                     stop_thinking_loop()           # finish the current hum first
                     # Stop pressed mid-turn: abandon the reply, go straight back to idle.
                     if _INTERRUPT.is_set() or not reply:
-                        if _INTERRUPT.is_set():
-                            add_event("INFO", "turn stopped - back to idle")
                         with LOCK: STATE["state"] = "idle"
                         continue
                     play_cached("done")            # the higher note lands with the answer
@@ -900,7 +884,7 @@ def mic_loop():
                 except Exception:
                     _nsig = _sig
                 if _nsig != _sig or mic_ctl_generation() != _gen:
-                    add_event("INFO", "mic change detected - reopening device")
+                    add_event("INFO", f"mic change detected - reopening device [{idx}] {name}")
                     break
                 _sig = _nsig
             time.sleep(0.003)
@@ -1120,8 +1104,6 @@ class H(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     idx = None
             set_mic_index(idx)
-            _label = "auto" if idx is None else idx
-            add_event("INFO", f"mic switch requested -> {_label}")
             body = json.dumps({"ok": True, "index": idx}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
