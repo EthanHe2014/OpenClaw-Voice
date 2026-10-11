@@ -18,7 +18,7 @@ Rules for builders:
 ## Backlog — tools to build (Tier A/B)
 
 - [x] builder-E **notes** — capture a note to a dated file; tool `note(command=add|list|read, text=...)`
-- [~] builder-E **todo** — add/list/complete items in a local JSON list; tool `todo(command=add|list|done, item=...)`
+- [x] builder-E **todo** — add/list/complete items in a local JSON list; tool `todo(command=add|list|done, item=...)`
 - [ ] **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
 - [ ] **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
 - [ ] **clipboard** — read/write the macOS clipboard; tool `clipboard(command=read|write, text=...)`
@@ -62,3 +62,4 @@ Rules for builders:
 - [x] calculator — done (v0.2.0, tools-only, model normalizes expr)
 - [x] music — done (v0.2.0, tools-only: play/stop/volume)
 - [x] builder-E **notes** — done (v0.1.0, tools-only: add/list/read, dated file)
+- [x] builder-E **todo** — done (v0.1.0, tools-only: add/list/done, local JSON)
