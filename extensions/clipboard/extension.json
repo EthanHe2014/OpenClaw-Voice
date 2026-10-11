@@ -1,0 +1,12 @@
+{
+  "id": "clipboard",
+  "name": "Clipboard",
+  "version": "0.1.0",
+  "description": "Read or write the macOS clipboard, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
