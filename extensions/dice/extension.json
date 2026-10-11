@@ -1,0 +1,12 @@
+{
+  "id": "dice",
+  "name": "Random",
+  "version": "0.1.0",
+  "description": "Roll dice, flip a coin, or pick randomly from a list, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
