@@ -1,0 +1,12 @@
+{
+  "id": "appcontrol",
+  "name": "App Control",
+  "version": "0.1.0",
+  "description": "Open, quit, or focus macOS apps via osascript.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
