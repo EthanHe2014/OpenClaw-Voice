@@ -20,7 +20,7 @@ Rules for builders:
 - [x] builder-E **notes** — capture a note to a dated file; tool `note(command=add|list|read, text=...)`
 - [x] builder-E **todo** — add/list/complete items in a local JSON list; tool `todo(command=add|list|done, item=...)`
 - [ ] **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
-- [ ] **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
+- [~] builder-E **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
 - [ ] **clipboard** — read/write the macOS clipboard; tool `clipboard(command=read|write, text=...)`
 - [ ] **appcontrol** — open/quit/focus apps via osascript; tool `app(command=open|quit|focus, name=...)`
 - [ ] **volume** — system output volume + mute; tool `sysvolume(command=set|up|down|mute, level=...)`
