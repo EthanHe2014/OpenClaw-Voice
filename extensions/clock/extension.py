@@ -1,31 +1,42 @@
-"""Clock & Time — reference extension.
+"""Clock & Time — pure tool extension.
 
-Teaches Spark to answer the time/date on the spot, and shows how an
-`on_transcript` hook pre-empts the agent: it replies itself, then returns the
-text unchanged so nothing else breaks.
+Exposes ONE tool: `clock`. It returns the current time/date as DATA. It does NOT
+speak and does NOT consume the turn — the watcher routes to it, the result is
+handed to OpenClaw, and OpenClaw phrases the spoken reply (TTS reads that).
+
+Contract: a tool returns a dict. `data` is the structured result; the agent sees
+it and writes the words.
 """
-import re
-
-# A handful of phrasings people actually use. Lowercased matching.
-TIME_RE = re.compile(r"\b(what(?:'s| is)? the time|what time is it|"
-                     r"time is it|got the time|current time)\b")
-DATE_RE = re.compile(r"\b(what(?:'s| is)? (?:the )?date|what day is it|"
-                     r"what(?:'s| is)? today(?:'s date)?)\b")
+import time
 
 
 def setup(ctx):
-    ctx.log("clock extension ready")
+    ctx.log("clock ready")
 
-    def on_transcript(text, ctx):
-        t = (text or "").lower().strip()
-        if not t:
-            return None
-        if TIME_RE.search(t):
-            ctx.speak("It is " + ctx.now("%H:%M") + " right now.")
-            return ""          # consumed: hand the agent nothing to do
-        if DATE_RE.search(t):
-            ctx.speak("Today is " + ctx.now("%A, %B %-d, %Y") + ".")
-            return ""
-        return None            # not ours — pass the text through
+    def do_clock(args, ctx):
+        what = (args.get("what") or "time").strip().lower()
+        if what in ("date", "day", "today"):
+            return {"ok": True, "data": {
+                "date": ctx.now("%A, %B %-d, %Y"),
+                "iso": ctx.now("%Y-%m-%d"),
+            }}
+        if what in ("both", "datetime", "full"):
+            return {"ok": True, "data": {
+                "time": ctx.now("%H:%M"),
+                "date": ctx.now("%A, %B %-d, %Y"),
+            }}
+        return {"ok": True, "data": {
+            "time": ctx.now("%H:%M"),
+            "timezone": time.strftime("%Z"),
+        }}
 
-    return {"on_transcript": on_transcript}
+    def tools(ctx):
+        return [{
+            "name": "clock",
+            "description": "Get the current local time and/or date.",
+            "args": {"what": {"type": "enum", "required": False,
+                              "values": ["time", "date", "both"]}},
+            "fn": do_clock,
+        }]
+
+    return {"tools": tools}

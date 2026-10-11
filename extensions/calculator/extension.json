@@ -7,6 +7,6 @@
   "entry": "extension.py",
   "enabled": true,
   "scopes": ["speak", "log"],
-  "hooks": ["on_transcript", "tools"],
+  "hooks": ["tools"],
   "config": {}
 }

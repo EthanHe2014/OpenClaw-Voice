@@ -1,12 +1,10 @@
-"""Calculator — reference skill extension.
+"""Calculator — pure tool extension.
 
-Shows the two halves of a skill extension:
-  1. a `tools` hook that DECLARES a callable skill for the watcher/registry;
-  2. a plain pattern fallback (`on_transcript`) so it still works with no model.
+Exposes ONE tool: `calculator`. Returns the computed value as DATA. It does NOT
+speak and does NOT consume the turn — OpenClaw phrases the reply.
 
-Safe eval: only digits, operators, parentheses, and a few functions. Natural
-phrasing (times / × / cubed / to the third power / divided by) is normalized
-first, so spoken arithmetic does not fall through to the agent.
+The MODEL does the interpreting: it emits a clean `expr` (e.g. "100*3**3") and
+this tool only evaluates it. Keep the evaluator dumb and safe.
 """
 import ast
 import operator
@@ -21,43 +19,14 @@ _OPS = {
 
 EXPR_RE = re.compile(r"^[\d\s\.\+\-\*/%()]+$")
 
-_ORD = {w: i for i, w in enumerate(
-    ["zeroth", "first", "second", "third", "fourth", "fifth", "sixth",
-     "seventh", "eighth", "ninth", "tenth"], 0)}
-
-
-def normalize(expr):
-    """Turn spoken arithmetic into a plain expression. Best-effort."""
-    s = (expr or "").strip().lower().rstrip("?.!")
-    s = s.replace("×", "*").replace("÷", "/").replace("−", "-")
-    # powers: "to the third power", "to the power of 3", "cubed", "squared"
-    s = re.sub(r"\bto the power of\s+(\d+)", r"^ \1", s)
-    s = re.sub(r"\bto the\s+(\w+)\s+power", lambda m: "^ " + str(_ORD.get(m.group(1), "")), s)
-    s = re.sub(r"\bto the power\s+(\d+)", r"^ \1", s)
-    s = re.sub(r"\bsquared\b", "^ 2", s)
-    s = re.sub(r"\bcubed\b", "^ 3", s)
-    # word operators
-    subs = [(r"\btimes\b", "*"), (r"\bmultiplied by\b", "*"),
-            (r"\bplus\b", "+"), (r"\badd(?:ed to)?\b", "+"),
-            (r"\bminus\b", "-"), (r"\btake away\b", "-"),
-            (r"\bdivided by\b", "/"), (r"\bover\b", "/"),
-            (r"\bmod(?:ulo)?\b", "%")]
-    for pat, op in subs:
-        s = re.sub(pat, op, s)
-    # lone "x" between numbers -> *
-    s = re.sub(r"(?<=\d)\s*x\s*(?=\d)", "*", s)
-    # tidy spacing around operators so "3 ^ 3" is valid, then ^ -> ** (Python pow)
-    s = re.sub(r"\s*\^\s*", "^", s)
-    s = s.replace("^", "**")
-    return s.strip()
-
 
 def safe_eval(expr):
-    """Evaluate a pure arithmetic expression (after normalize). Raises otherwise."""
-    expr = normalize(expr)
-    if not expr or not EXPR_RE.match(expr):
+    """Evaluate a pure arithmetic expression. Raises on anything else."""
+    s = (expr or "").strip()
+    s = s.replace("^", "**")          # caret = power (common convention)
+    if not s or not EXPR_RE.match(s):
         raise ValueError("not a pure arithmetic expression")
-    node = ast.parse(expr, mode="eval")
+    node = ast.parse(s, mode="eval")
     return _eval(node.body)
 
 
@@ -74,42 +43,28 @@ def _eval(n):
 def _fmt(v):
     if isinstance(v, float) and v.is_integer():
         v = int(v)
-    return str(v)
+    return v
 
 
 def setup(ctx):
     ctx.log("calculator ready")
 
-    # -- skill the watcher can route to ------------------------------------
     def do_calc(args, ctx):
-        val = safe_eval(args.get("expr", ""))
-        return {"ok": True, "speak": _fmt(val), "data": {"value": val}}
+        expr = args.get("expr", "")
+        try:
+            val = safe_eval(expr)
+        except Exception as e:
+            return {"ok": False, "error": f"bad expr {expr!r}: {e}"}
+        return {"ok": True, "data": {"expr": expr, "value": _fmt(val)}}
 
     def tools(ctx):
         return [{
             "name": "calculator",
-            "description": ("Evaluate arithmetic. Accepts spoken forms: times, plus, "
-                            "minus, divided by, squared, cubed, 'to the Nth power', "
-                            "and the symbols x / ×/ ÷ / ^."),
+            "description": ("Evaluate an arithmetic expression. `expr` must be a "
+                            "plain expression using only digits and + - * / ( ) "
+                            "and ** for powers (e.g. \"100*3**3\")."),
             "args": {"expr": {"type": "string", "required": True}},
             "fn": do_calc,
-            "speak": True,
         }]
 
-    # -- no-model fallback: catch spoken arithmetic ------------------------
-    spoken = re.compile(
-        r"(?:what(?:'s| is)|whats|calculate|compute|how much is|"
-        r"what(?:'s| is) the answer to)\s+(.+)", re.I)
-
-    def on_transcript(text, ctx):
-        m = spoken.search(text or "")
-        if not m:
-            return None
-        try:
-            val = safe_eval(m.group(1))
-        except Exception:
-            return None
-        ctx.speak("That's " + _fmt(val) + ".")
-        return ""
-
-    return {"tools": tools, "on_transcript": on_transcript}
+    return {"tools": tools}

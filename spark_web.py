@@ -862,14 +862,11 @@ def mic_loop():
                     if CONFIRM_WORD and CONFIRM_WORD not in text.lower():
                         with LOCK: STATE["state"] = "idle"
                         continue
-                    # --- extensions: deterministic hooks first, then the watcher ---
-                    if EXT_MGR:
-                        _t = EXT_MGR.dispatch_text("on_transcript", text)
-                        if _t == "":
-                            add_event("INFO", "handled by extension")
-                            with LOCK: STATE["state"] = "idle"
-                            continue
-                        text = _t or text
+                    # --- extensions: watcher routes to tools, hands output to the agent ---
+                    # Extensions NEVER speak and NEVER consume the turn: the
+                    # watcher runs the tools, then the result (original words +
+                    # 'handled' note + tool output) goes to OpenClaw, which does
+                    # all the phrasing. TTS reads OpenClaw's reply.
                     if BRIDGE:
                         text, _wres, _wroute = BRIDGE.process(text)
                     with LOCK: STATE["state"] = "thinking"

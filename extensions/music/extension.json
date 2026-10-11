@@ -1,0 +1,12 @@
+{
+  "id": "music",
+  "name": "Music",
+  "version": "0.2.0",
+  "description": "Play/stop NetEase music and set its volume (detached via launchd). Returns result data; the agent speaks.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": { "liked_playlist_id": "9159315398" }
+}

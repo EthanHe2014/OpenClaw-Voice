@@ -1,12 +1,12 @@
 {
   "id": "clock",
   "name": "Clock & Time",
-  "version": "0.1.0",
-  "description": "Answers time/date questions instantly, without troubling the agent.",
+  "version": "0.2.0",
+  "description": "Reports the current time and date as tool output for the agent to speak.",
   "author": "Ethan",
   "entry": "extension.py",
   "enabled": true,
-  "scopes": ["speak", "log"],
-  "hooks": ["on_transcript"],
+  "scopes": ["log"],
+  "hooks": ["tools"],
   "config": { "timezone": "Asia/Shanghai" }
 }
