@@ -1,0 +1,12 @@
+{
+  "id": "timer",
+  "name": "Timer",
+  "version": "0.1.0",
+  "description": "Countdown timer that fires a spoken alert via the task engine.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log", "tasks"],
+  "hooks": ["tools"],
+  "config": {}
+}
