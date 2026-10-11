@@ -1,0 +1,12 @@
+{
+  "id": "unitconv",
+  "name": "Unit Conversion",
+  "version": "0.1.0",
+  "description": "Convert values between units (length, mass, volume, time, speed, data, temperature), as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
