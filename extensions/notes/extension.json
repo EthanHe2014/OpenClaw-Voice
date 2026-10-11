@@ -1,0 +1,12 @@
+{
+  "id": "notes",
+  "name": "Notes",
+  "version": "0.1.0",
+  "description": "Capture and read quick notes in a dated file for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
