@@ -7,3 +7,4 @@ Append-only. One line per builder run:
 2026-10-11T16:50+08:00 | seed | framework+scaffolding | ok | - | roadmap, playbook, cron fleet created by Spark
 2026-10-11T17:11+08:00 | builder-E | notes | ok | dfad133 | tools-only note(add/list/read) to dated file in data_dir; unit-tested + live-load check passed
 2026-10-11T17:14+08:00 | builder-E | todo | ok | 199224b | tools-only todo(add/list/done) local JSON in data_dir; unit-tested + live-load check passed
+2026-10-11T17:17+08:00 | builder-E | dice | ok | 3716fd7 | tools-only random(dice/coin/pick); unit-tested + live-load check passed
