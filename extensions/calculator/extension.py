@@ -4,7 +4,9 @@ Shows the two halves of a skill extension:
   1. a `tools` hook that DECLARES a callable skill for the watcher/registry;
   2. a plain pattern fallback (`on_transcript`) so it still works with no model.
 
-Safe eval: only digits, operators, parentheses, and a few functions.
+Safe eval: only digits, operators, parentheses, and a few functions. Natural
+phrasing (times / × / cubed / to the third power / divided by) is normalized
+first, so spoken arithmetic does not fall through to the agent.
 """
 import ast
 import operator
@@ -17,13 +19,43 @@ _OPS = {
     ast.UAdd: operator.pos,
 }
 
-EXPR_RE = re.compile(r"^[\d\s\.\+\-\*/%\(\)]+$")
+EXPR_RE = re.compile(r"^[\d\s\.\+\-\*/%()]+$")
+
+_ORD = {w: i for i, w in enumerate(
+    ["zeroth", "first", "second", "third", "fourth", "fifth", "sixth",
+     "seventh", "eighth", "ninth", "tenth"], 0)}
+
+
+def normalize(expr):
+    """Turn spoken arithmetic into a plain expression. Best-effort."""
+    s = (expr or "").strip().lower().rstrip("?.!")
+    s = s.replace("×", "*").replace("÷", "/").replace("−", "-")
+    # powers: "to the third power", "to the power of 3", "cubed", "squared"
+    s = re.sub(r"\bto the power of\s+(\d+)", r"^ \1", s)
+    s = re.sub(r"\bto the\s+(\w+)\s+power", lambda m: "^ " + str(_ORD.get(m.group(1), "")), s)
+    s = re.sub(r"\bto the power\s+(\d+)", r"^ \1", s)
+    s = re.sub(r"\bsquared\b", "^ 2", s)
+    s = re.sub(r"\bcubed\b", "^ 3", s)
+    # word operators
+    subs = [(r"\btimes\b", "*"), (r"\bmultiplied by\b", "*"),
+            (r"\bplus\b", "+"), (r"\badd(?:ed to)?\b", "+"),
+            (r"\bminus\b", "-"), (r"\btake away\b", "-"),
+            (r"\bdivided by\b", "/"), (r"\bover\b", "/"),
+            (r"\bmod(?:ulo)?\b", "%")]
+    for pat, op in subs:
+        s = re.sub(pat, op, s)
+    # lone "x" between numbers -> *
+    s = re.sub(r"(?<=\d)\s*x\s*(?=\d)", "*", s)
+    # tidy spacing around operators so "3 ^ 3" is valid, then ^ -> ** (Python pow)
+    s = re.sub(r"\s*\^\s*", "^", s)
+    s = s.replace("^", "**")
+    return s.strip()
 
 
 def safe_eval(expr):
-    """Evaluate a pure arithmetic expression. Raises on anything else."""
-    expr = (expr or "").strip().replace("x", "*").replace("×", "*").replace("÷", "/")
-    if not EXPR_RE.match(expr):
+    """Evaluate a pure arithmetic expression (after normalize). Raises otherwise."""
+    expr = normalize(expr)
+    if not expr or not EXPR_RE.match(expr):
         raise ValueError("not a pure arithmetic expression")
     node = ast.parse(expr, mode="eval")
     return _eval(node.body)
@@ -56,26 +88,25 @@ def setup(ctx):
     def tools(ctx):
         return [{
             "name": "calculator",
-            "description": "Evaluate an arithmetic expression (+, -, *, /, %, (, ), x/×).",
+            "description": ("Evaluate arithmetic. Accepts spoken forms: times, plus, "
+                            "minus, divided by, squared, cubed, 'to the Nth power', "
+                            "and the symbols x / ×/ ÷ / ^."),
             "args": {"expr": {"type": "string", "required": True}},
             "fn": do_calc,
             "speak": True,
         }]
 
-    # -- no-model fallback: catch obvious "what's 47 times 89" --------------
-    spoken = re.compile(r"(?:what(?:'s| is)|calculate|compute|how much is)\s+(.+)", re.I)
-    words = {"times": "*", "plus": "+", "minus": "-", "divided by": "/",
-             "over": "/", "x": "*"}
+    # -- no-model fallback: catch spoken arithmetic ------------------------
+    spoken = re.compile(
+        r"(?:what(?:'s| is)|whats|calculate|compute|how much is|"
+        r"what(?:'s| is) the answer to)\s+(.+)", re.I)
 
     def on_transcript(text, ctx):
         m = spoken.search(text or "")
         if not m:
             return None
-        expr = m.group(1).strip().rstrip("?.!")
-        for w, op in words.items():
-            expr = re.sub(rf"\b{w}\b", op, expr, flags=re.I)
         try:
-            val = safe_eval(expr)
+            val = safe_eval(m.group(1))
         except Exception:
             return None
         ctx.speak("That's " + _fmt(val) + ".")
