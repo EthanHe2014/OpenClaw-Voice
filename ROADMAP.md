@@ -26,7 +26,7 @@ Rules for builders:
 - [ ] **volume** — system output volume + mute; tool `sysvolume(command=set|up|down|mute, level=...)`
 - [ ] **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
 - [ ] **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
-- [~] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
+- [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
 - [ ] **translation** — translate text (network scope); tool `translate(text=..., to=...)`
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
 - [ ] **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
