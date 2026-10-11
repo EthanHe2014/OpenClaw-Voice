@@ -82,7 +82,7 @@ HOOK_TOKEN_FILE = _cfg("hook_token_file", os.path.join(ROOT, ".hook_token"))
 _last_run_id = None
 
 STATE = {
-    "mic_index": None, "mic_name": "", "frames": 0, "started": time.time(),
+    "mic_index": None, "mic_name": "", "mic_pinned": None, "frames": 0, "started": time.time(),
     "rms": 0.0, "rms_peak": 0.0, "score": 0.0, "score_peak": 0.0,
     "events": [], "last_wake": None,
     "last_transcript": "", "last_reply": "", "state": "idle",
@@ -684,125 +684,231 @@ def capture_from(buf, timeout_frames=None, preroll=None):
     return np.concatenate(frames) if frames else np.array([], dtype=np.int16)
 
 
-def mic_loop():
+# --- hot-swappable mic control (works while running) -------------------------
+MIC_CTL = {
+    "index": FORCE_MIC_INDEX,   # None = auto (best-first)
+    "generation": 0,            # bumped to force the capture loop to re-open
+}
+MIC_CTL_LOCK = threading.Lock()
+
+
+def mic_ctl_generation():
+    with MIC_CTL_LOCK:
+        return MIC_CTL["generation"]
+
+
+def set_mic_index(index):
+    """Pin a specific input device (int) or None for auto/best-first.
+    Persists to spark_config.json so it survives a restart; takes effect
+    immediately in the running loop (no restart needed)."""
+    with MIC_CTL_LOCK:
+        MIC_CTL["index"] = index
+        MIC_CTL["generation"] += 1
+    with LOCK:
+        STATE["mic_pinned"] = index
+    try:
+        path = os.path.join(ROOT, "spark_config.json")
+        data = {}
+        if os.path.exists(path):
+            with open(path) as f:
+                data = json.load(f) or {}
+        data["force_mic_index"] = index
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        add_event("ERROR", f"mic cfg save: {e}")
+
+
+def list_inputs():
+    """All capturable input devices: [{index,name,channels,current}], best-first
+    (same ordering the auto picker uses) so the UI shows the real priority."""
     pa = pyaudio.PyAudio()
-    model = Model(wakeword_models=[WAKE], inference_framework="onnx")
-    CH = int(NATIVE*FRAME_MS/1000)
-    # Try every capturable input, best-first, until one actually opens (ANY mic).
-    stream = None; idx = None; name = ""
-    for i in input_candidates(pa):
+    out = []; seen = set()
+    try:
+        cur = STATE.get("mic_index")
+        for i in input_candidates(pa):
+            ok, nm = _valid_input(pa, i)
+            if not ok or i in seen:
+                continue
+            seen.add(i)
+            try:
+                ch = pa.get_device_info_by_index(i).get("maxInputChannels", 0)
+            except Exception:
+                ch = 0
+            out.append({"index": i, "name": nm, "channels": ch, "current": (i == cur)})
+    finally:
+        pa.terminate()
+    return out
+
+
+def _open_input(pa, CH):
+    """Open the best available input honoring the current pin, best-first.
+    Returns (stream, idx, name) or (None, None, '')."""
+    with MIC_CTL_LOCK:
+        pin = MIC_CTL["index"]
+    cands = input_candidates(pa)
+    if pin is not None:
+        cands = [pin] + [c for c in cands if c != pin]
+    for i in cands:
         ok, nm = _valid_input(pa, i)
         if not ok:
             continue
         try:
-            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=NATIVE,
-                             input=True, input_device_index=i, frames_per_buffer=CH)
-            idx, name = i, nm
-            break
+            st = pa.open(format=pyaudio.paInt16, channels=1, rate=NATIVE,
+                         input=True, input_device_index=i, frames_per_buffer=CH)
+            return st, i, nm
         except Exception as e:
             add_event("WARN", f"mic [{i}] {nm} failed: {e}")
-            stream = None
-    if stream is None:
-        add_event("ERROR", "no usable input device found")
-        with LOCK:
-            STATE["mic_index"] = None; STATE["mic_name"] = "(none)"
-        return
-    with LOCK:
-        STATE["mic_index"] = idx; STATE["mic_name"] = name
-    add_event("INFO", f"mic opened: [{idx}] {name}")
-    add_event("INFO", f"listening for wakeword '{os.path.basename(WAKE).replace('.onnx','').replace('_',' ')}'")
-    while True:
+    return None, None, ""
+
+
+def _device_signature(pa):
+    """Signature of the capturable-input device set (index:name), so a
+    plug/unplug is detected even when the device count stays the same."""
+    sig = []
+    for i in range(pa.get_device_count()):
         try:
-            raw = stream.read(CH, exception_on_overflow=False)
-            a = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
-            rms = float(np.sqrt(np.mean(a*a)))
-            _pred = model.predict(resample(a, NATIVE))
-            score = float(max(_pred.values()) if _pred else 0.0)
-            # Debug: report strong-but-not-triggering scores so misses are visible.
-            _pk = STATE.get("_dbg_pk", 0.0)
-            if score > _pk:
-                STATE["_dbg_pk"] = score
-            if time.time() - STATE.get("_dbg_t", 0) > 2.0:
-                if STATE.get("_dbg_pk", 0.0) > 0.05:
-                    add_event("INFO", f"peak2s={STATE['_dbg_pk']:.3f}")
-                STATE["_dbg_pk"] = 0.0; STATE["_dbg_t"] = time.time()
+            d = pa.get_device_info_by_index(i)
+        except Exception:
+            continue
+        if d.get("maxInputChannels", 0) > 0:
+            sig.append(f"{i}:{d.get('name','')}")
+    return "|".join(sig)
+
+
+def mic_loop():
+    pa = pyaudio.PyAudio()
+    model = Model(wakeword_models=[WAKE], inference_framework="onnx")
+    CH = int(NATIVE*FRAME_MS/1000)
+    while True:                       # outer: (re)open the device when needed
+        stream, idx, name = _open_input(pa, CH)
+        if stream is None:
+            add_event("ERROR", "no usable input device found")
             with LOCK:
-                STATE["frames"] += 1
-                STATE["rms"] = rms; STATE["rms_peak"] = max(STATE["rms_peak"], rms)
-                STATE["score"] = score; STATE["score_peak"] = max(STATE["score_peak"], score)
-            if score >= THRESH:
-                add_event("WAKE", f"score={score:.2f}")
-                model.reset()
-                _INTERRUPT.clear()                 # fresh turn: reset the Stop latch
-                with LOCK: STATE["state"] = "listening"
-                # Play the cue FIRST and let it finish, THEN start listening.
-                # Nothing is buffered during the cue, so it can never be recorded
-                # and no audio is thrown away by guesswork.
-                # Start the mic buffer the instant the wakeword fires, BEFORE the cue,
-                # then start the recognizer right away too, and play the cue WHILE
-                # capture is already running. Nothing said is ever missed.
-                mkbuf = MicBuffer(stream, CH).start()
-                _tcap = time.time()
-                _ack = threading.Thread(target=speak_ack, daemon=True)
-                _ack.start()
-                utt = capture_from(mkbuf)
-                _ack.join(timeout=0.1)
-                mkbuf.halt()
-                add_event("INFO", f"capture took {time.time()-_tcap:.2f}s")
-                if len(utt) < RATE * 0.3:
-                    add_event("INFO", "utterance too short")
-                    with LOCK: STATE["state"] = "idle"
-                    continue
-                with LOCK: STATE["state"] = "transcribing"
-                p = tempfile.mktemp(suffix=".wav")
-                # CRITICAL: force int16. If utt is float32, tobytes() writes raw
-                # floats as if they were PCM, producing audio with energy but no speech.
-                _utt16 = np.asarray(utt).astype(np.int16)
-                with wave.open(p, "wb") as w:
-                    w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
-                    w.writeframes(_utt16.tobytes())
-                text = transcribe_audio(p)
-                with LOCK: STATE["last_transcript"] = text
-                add_event("STT", text or "(empty)")
-                low = (text or "").lower()
-                # Noise guard: a transcript that is ONLY a bracketed tag like
-                # "(bell ding)" / "(music)" is non-speech — ignore it entirely
-                # (no log, no agent call, no credits).
-                if is_noise_only(text):
-                    add_event("INFO", f"non-speech tag ignored: {text[:40]}")
-                    play_cached("missed")        # error.wav cue
-                    with LOCK: STATE["state"] = "idle"
-                    continue
-                log_turn(text)
-                if (not text) or "[blank_audio]" in low or low.strip(" .!?,") == "":
-                    add_event("INFO", "blank/empty transcript - ignored")
-                    play_cached("missed")
-                    with LOCK: STATE["state"] = "idle"
-                    continue
-                # (single-word guard removed per request)
-                if CONFIRM_WORD and CONFIRM_WORD not in text.lower():
-                    add_event("INFO", f"confirm word '{CONFIRM_WORD}' missing - ignored")
-                    with LOCK: STATE["state"] = "idle"
-                    continue
-                with LOCK: STATE["state"] = "thinking"
-                start_thinking_loop()          # hum evenly while we wait
-                reply = ask_spark(text)
-                stop_thinking_loop()           # finish the current hum first
-                # Stop pressed mid-turn: abandon the reply, go straight back to idle.
-                if _INTERRUPT.is_set() or not reply:
-                    if _INTERRUPT.is_set():
-                        add_event("INFO", "turn stopped - back to idle")
-                    with LOCK: STATE["state"] = "idle"
-                    continue
-                play_cached("done")            # the higher note lands with the answer
+                STATE["mic_index"] = None; STATE["mic_name"] = "(none)"
+            time.sleep(1.0)
+            continue
+        with LOCK:
+            STATE["mic_index"] = idx; STATE["mic_name"] = name
+        add_event("INFO", f"mic opened: [{idx}] {name}")
+        add_event("INFO", f"listening for wakeword '{os.path.basename(WAKE).replace('.onnx','').replace('_',' ')}'")
+        _sig = _device_signature(pa)
+        _gen = mic_ctl_generation()
+        _last_scan = 0.0
+        while True:                   # inner: read from the currently open device
+            try:
+                raw = stream.read(CH, exception_on_overflow=False)
+                a = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+                rms = float(np.sqrt(np.mean(a*a)))
+                _pred = model.predict(resample(a, NATIVE))
+                score = float(max(_pred.values()) if _pred else 0.0)
+                # Debug: report strong-but-not-triggering scores so misses are visible.
+                _pk = STATE.get("_dbg_pk", 0.0)
+                if score > _pk:
+                    STATE["_dbg_pk"] = score
+                if time.time() - STATE.get("_dbg_t", 0) > 2.0:
+                    if STATE.get("_dbg_pk", 0.0) > 0.05:
+                        add_event("INFO", f"peak2s={STATE['_dbg_pk']:.3f}")
+                    STATE["_dbg_pk"] = 0.0; STATE["_dbg_t"] = time.time()
                 with LOCK:
-                    STATE["last_reply"] = reply
-                    STATE["state"] = "speaking"
-                add_event("REPLY", reply or "(empty)")
-                speak(reply)
-                with LOCK: STATE["state"] = "idle"
-        except Exception as e:
-            add_event("ERROR", str(e)); time.sleep(0.5)
+                    STATE["frames"] += 1
+                    STATE["rms"] = rms; STATE["rms_peak"] = max(STATE["rms_peak"], rms)
+                    STATE["score"] = score; STATE["score_peak"] = max(STATE["score_peak"], score)
+                if score >= THRESH:
+                    add_event("WAKE", f"score={score:.2f}")
+                    model.reset()
+                    _INTERRUPT.clear()                 # fresh turn: reset the Stop latch
+                    with LOCK: STATE["state"] = "listening"
+                    # Play the cue FIRST and let it finish, THEN start listening.
+                    # Nothing is buffered during the cue, so it can never be recorded
+                    # and no audio is thrown away by guesswork.
+                    # Start the mic buffer the instant the wakeword fires, BEFORE the cue,
+                    # then start the recognizer right away too, and play the cue WHILE
+                    # capture is already running. Nothing said is ever missed.
+                    mkbuf = MicBuffer(stream, CH).start()
+                    _tcap = time.time()
+                    _ack = threading.Thread(target=speak_ack, daemon=True)
+                    _ack.start()
+                    utt = capture_from(mkbuf)
+                    _ack.join(timeout=0.1)
+                    mkbuf.halt()
+                    add_event("INFO", f"capture took {time.time()-_tcap:.2f}s")
+                    if len(utt) < RATE * 0.3:
+                        add_event("INFO", "utterance too short")
+                        with LOCK: STATE["state"] = "idle"
+                        continue
+                    with LOCK: STATE["state"] = "transcribing"
+                    p = tempfile.mktemp(suffix=".wav")
+                    # CRITICAL: force int16. If utt is float32, tobytes() writes raw
+                    # floats as if they were PCM, producing audio with energy but no speech.
+                    _utt16 = np.asarray(utt).astype(np.int16)
+                    with wave.open(p, "wb") as w:
+                        w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
+                        w.writeframes(_utt16.tobytes())
+                    text = transcribe_audio(p)
+                    with LOCK: STATE["last_transcript"] = text
+                    add_event("STT", text or "(empty)")
+                    low = (text or "").lower()
+                    # Noise guard: a transcript that is ONLY a bracketed tag like
+                    # "(bell ding)" / "(music)" is non-speech — ignore it entirely
+                    # (no log, no agent call, no credits).
+                    if is_noise_only(text):
+                        add_event("INFO", f"non-speech tag ignored: {text[:40]}")
+                        play_cached("missed")        # error.wav cue
+                        with LOCK: STATE["state"] = "idle"
+                        continue
+                    log_turn(text)
+                    if (not text) or "[blank_audio]" in low or low.strip(" .!?,") == "":
+                        add_event("INFO", "blank/empty transcript - ignored")
+                        play_cached("missed")
+                        with LOCK: STATE["state"] = "idle"
+                        continue
+                    # (single-word guard removed per request)
+                    if CONFIRM_WORD and CONFIRM_WORD not in text.lower():
+                        add_event("INFO", f"confirm word '{CONFIRM_WORD}' missing - ignored")
+                        with LOCK: STATE["state"] = "idle"
+                        continue
+                    with LOCK: STATE["state"] = "thinking"
+                    start_thinking_loop()          # hum evenly while we wait
+                    reply = ask_spark(text)
+                    stop_thinking_loop()           # finish the current hum first
+                    # Stop pressed mid-turn: abandon the reply, go straight back to idle.
+                    if _INTERRUPT.is_set() or not reply:
+                        if _INTERRUPT.is_set():
+                            add_event("INFO", "turn stopped - back to idle")
+                        with LOCK: STATE["state"] = "idle"
+                        continue
+                    play_cached("done")            # the higher note lands with the answer
+                    with LOCK:
+                        STATE["last_reply"] = reply
+                        STATE["state"] = "speaking"
+                    add_event("REPLY", reply or "(empty)")
+                    speak(reply)
+                    with LOCK: STATE["state"] = "idle"
+            except Exception as e:
+                add_event("ERROR", str(e)); time.sleep(0.5)
+
+            # Re-open when the device set changes (plug/unplug) or a switch was
+            # requested from the dashboard. Checked on a timer, never mid-turn,
+            # so a switch can never clip a reply.
+            if time.time() - _last_scan > 3.0:
+                _last_scan = time.time()
+                try:
+                    _nsig = _device_signature(pa)
+                except Exception:
+                    _nsig = _sig
+                if _nsig != _sig or mic_ctl_generation() != _gen:
+                    add_event("INFO", "mic change detected - reopening device")
+                    break
+                _sig = _nsig
+            time.sleep(0.003)
+        try:
+            stream.stop_stream(); stream.close()
+        except Exception:
+            pass
+
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8>
 <title>Spark dashboard</title>
@@ -844,6 +950,9 @@ margin-right:8px;animation:p 1.4s infinite}@keyframes p{50%{opacity:.35}}
 </style></head><body>
 <h1><span class=dot></span>⚡ SPARK — voice pipeline</h1>
 <div class=sub id=mic>connecting…</div>
+<div class=pan wide style="margin-bottom:16px"><div class=lbl>microphone <span id=micpin class=sub style="text-transform:none;letter-spacing:0"></span></div>
+  <select id=micpick class=btn style="margin-left:0;padding:5px 10px"></select>
+  <span class=copystat id=micstat></span></div>
 <div class=grid>
   <div class=pan><div class=lbl>mic level (rms)</div><div class=val id=rms>0</div>
     <div class=bar><div class=fill id=rmsfill></div></div>
@@ -883,6 +992,7 @@ async function tick(){
     if(evEl._html!==evHtml){ evEl.innerHTML=evHtml; evEl._html=evHtml; }
     evEl._text=s.events.slice().reverse().map(e=>e.t+'  '+e.kind+'  '+e.detail).join(String.fromCharCode(10));
     document.getElementById('stat').textContent='serving on http://127.0.0.1:8770';
+    if(!_micInit){ try{ await loadMics(); }catch(e){} }
   }catch(e){document.getElementById('mic').textContent='disconnected: '+(e&&e.message?e.message:e);}
   try{
     const r2=await fetch('/tasks?'+Date.now(),{cache:'no-store'}); const t=await r2.json();
@@ -903,6 +1013,29 @@ async function tick(){
     window._tasksInit=true;
   }catch(e){}
 }
+let _micInit=false;
+async function loadMics(){
+  const r=await fetch('/mics?'+Date.now(),{cache:'no-store'}); const m=await r.json();
+  const sel=document.getElementById('micpick');
+  let html='<option value="auto">auto (best available)</option>';
+  for(const d of (m.mics||[])){
+    html+='<option value="'+d.index+'">['+d.index+'] '+String(d.name).replace(/</g,'&lt;')+(d.current?'  (active)':'')+'</option>';
+  }
+  if(sel._html!==html){ sel.innerHTML=html; sel._html=html; }
+  const pin=(m.pinned===null||m.pinned===undefined)?'auto':String(m.pinned);
+  if(sel.value!==pin) sel.value=pin;
+  document.getElementById('micpin').textContent=(m.pinned===null||m.pinned===undefined)?'(auto)':'(pinned '+m.pinned+')';
+  _micInit=true;
+}
+const _mp=document.getElementById('micpick');
+_mp.addEventListener('change',async()=>{
+  const v=_mp.value; const st=document.getElementById('micstat');
+  try{ await fetch('/mic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:v==='auto'?null:parseInt(v,10)})});
+    st.textContent='switching…'; st.classList.add('show');
+  }catch(e){ st.textContent='switch failed'; st.classList.add('show'); }
+  setTimeout(()=>{ st.classList.remove('show'); },1800);
+  try{ await loadMics(); }catch(e){}
+});
 const _sb=document.getElementById('stopbtn');
 _sb.addEventListener('click',async()=>{
   const st=document.getElementById('stopstat');
@@ -970,6 +1103,32 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        if path == "/mic":
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                payload = json.loads(raw.decode() or "{}")
+                idx = payload.get("index")
+            except Exception:
+                idx = None
+                payload = {}
+            if isinstance(idx, str) and idx.strip().lower() in ("", "auto", "none", "null"):
+                idx = None
+            elif idx is not None:
+                try:
+                    idx = int(idx)
+                except (TypeError, ValueError):
+                    idx = None
+            set_mic_index(idx)
+            _label = "auto" if idx is None else idx
+            add_event("INFO", f"mic switch requested -> {_label}")
+            body = json.dumps({"ok": True, "index": idx}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+            return
         if path == "/say":
             try:
                 length = int(self.headers.get("Content-Length", 0) or 0)
@@ -996,6 +1155,29 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if path == "/mics":
+            body = json.dumps({"mics": list_inputs(),
+                               "pinned": STATE.get("mic_pinned"),
+                               "current": STATE.get("mic_index")}).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
+        if path == "/mic":
+            q = urllib.parse.urlparse(self.path).query
+            idx = urllib.parse.parse_qs(q).get("index", [None])[0]
+            if idx is None or str(idx).strip().lower() in ("", "auto", "none", "null"):
+                set_mic_index(None)
+            else:
+                try:
+                    set_mic_index(int(idx))
+                except (TypeError, ValueError):
+                    pass
+            body = b'{"ok":true}'
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         if path == "/stop":
             do_stop()
             body = b'{"ok":true}'
