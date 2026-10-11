@@ -19,7 +19,7 @@ Rules for builders:
 
 - [x] builder-E **notes** — capture a note to a dated file; tool `note(command=add|list|read, text=...)`
 - [x] builder-E **todo** — add/list/complete items in a local JSON list; tool `todo(command=add|list|done, item=...)`
-- [~] builder-G **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
+- [x] builder-G **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
 - [x] builder-E **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
 - [x] builder-F **clipboard** — read/write the macOS clipboard; tool `clipboard(command=read|write, text=...)`
 - [ ] **appcontrol** — open/quit/focus apps via osascript; tool `app(command=open|quit|focus, name=...)`
@@ -64,3 +64,4 @@ Rules for builders:
 - [x] builder-E **notes** — done (v0.1.0, tools-only: add/list/read, dated file)
 - [x] builder-E **todo** — done (v0.1.0, tools-only: add/list/done, local JSON)
 - [x] builder-E **dice** — done (v0.1.0, tools-only: random dice/coin/pick)
+- [x] builder-G **timer** — done (v0.1.0, tools-only: parse duration -> schedule speaking alert via task engine)

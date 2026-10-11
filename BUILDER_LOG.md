@@ -11,3 +11,4 @@ Append-only. One line per builder run:
 2026-10-11T19:13+0800 | builder-F | failure visibility | ok | 1a4dca1 | dashboard WATCHER event + route-log failures field + agent note when a skill fails; unit-tested + live-load check passed
 2026-10-11T19:14+0800 | builder-F | clipboard | ok | 9ba98d3 | tools-only clipboard(read/write/clear) via pbcopy/pbpaste; unit-tested + live-load check passed
 2026-10-11T19:15+0800 | builder-F | unitconv | ok | 58e3c66 | tools-only convert(value/from/to) for length/mass/volume/time/speed/data/temperature (offline, no currency); unit-tested + live-load check passed
+2026-10-11T21:14+0800 | builder-G | timer | ok | 693e463 | tools-only timer(duration,label) parses countdown phrase offline -> absolute time -> task engine speak; unit-tested + live-load check passed
