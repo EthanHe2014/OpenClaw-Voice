@@ -22,7 +22,7 @@ Rules for builders:
 - [x] builder-G **timer** — countdown + fire via the task engine; tool `timer(duration=..., label=...)`
 - [x] builder-E **dice** — roll dice / flip coin / random pick; tool `random(kind=dice|coin|pick, spec=...)`
 - [x] builder-F **clipboard** — read/write the macOS clipboard; tool `clipboard(command=read|write, text=...)`
-- [ ] **appcontrol** — open/quit/focus apps via osascript; tool `app(command=open|quit|focus, name=...)`
+- [~] builder-G **appcontrol** — open/quit/focus apps via osascript; tool `app(command=open|quit|focus, name=...)`
 - [ ] **volume** — system output volume + mute; tool `sysvolume(command=set|up|down|mute, level=...)`
 - [ ] **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
 - [ ] **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
