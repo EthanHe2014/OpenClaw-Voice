@@ -15,3 +15,4 @@ Append-only. One line per builder run:
 2026-10-11T21:18+0800 | builder-G | appcontrol | ok | 58cf2a3 | tools-only app(open/quit/focus/running) via osascript; unit-tested + live-load check passed
 2026-10-11T21:20+0800 | builder-G | volume | ok | 889fde5 | tools-only sysvolume(set/up/down/mute/unmute/get) via osascript; unit-tested (state restored) + live-load check passed
 2026-10-12T09:13+08:00 | builder-A | screenshot | ok | 594617a | tools-only screenshot(mode=screen|window, optional path) via screencapture/osascript; unit-tested + live-load check passed
+2026-10-12T09:14+08:00 | builder-A | spelling | ok | 40a1271 | tools-only spell(spell/define) via string split + DictionaryServices (offline); unit-tested + live-load check passed
