@@ -1,0 +1,12 @@
+{
+  "id": "translation",
+  "name": "Translation",
+  "version": "0.1.0",
+  "description": "Translate common words and phrases between languages offline (built-in phrasebook), as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
