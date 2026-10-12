@@ -102,7 +102,12 @@ system behaves exactly like today. Never worse than current.
 1. **Multi-intent** — `actions[]` is ordered and may hold several skills from one
    utterance ("what's the weather, and remind me…").
 2. **Chaining / dependencies** — `depends_on` lets a later action consume an
-   earlier result (e.g. "get my next event, then text me the address").
+   earlier result (e.g. "get my next event, then text me the address"). The
+   runner is implemented: an action with `depends_on: N` (an *earlier* index)
+   receives the prior action's `data` dict merged into its args (the action's own
+   args win on collision). If the referenced action failed or the index is not an
+   earlier action, the dependent action is skipped with `dependency_failed`.
+   Covered by `tests/test_registry.py` (chaining section).
 3. **Typed args** — the runner validates against each extension's arg schema:
    `string` / `number` / `bool` / `enum` / `date` / `duration`, coercing numeric
    strings and rejecting clearly-wrong or missing args (`invalid_args` /

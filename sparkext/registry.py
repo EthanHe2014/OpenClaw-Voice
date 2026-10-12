@@ -217,20 +217,48 @@ class Registry:
         ctx_by_ext = {e.id: e.ctx for e in manager.extensions.values()}
         results = []; handled = []
         confirm_pending = False
+        ok_by_index = []      # index -> did that action succeed
+        data_by_index = []    # index -> its `data` dict (for chaining), else None
+
+        def _push(res, ok, data):
+            results.append(res)
+            ok_by_index.append(ok)
+            data_by_index.append(data)
+
         for i, action in enumerate(route.get("actions", [])):
+            dep = action.get("depends_on")
+            if dep is not None:
+                # Chaining: a later action consumes an earlier one's OUTPUT.
+                # The runner is deterministic and the tools stay dumb, so we
+                # feed the prior result's `data` into this action's args.
+                reason = None
+                if not isinstance(dep, int) or dep == i or not (0 <= dep < i):
+                    reason = (f"depends_on must reference an earlier action "
+                              f"index (got {dep!r})")
+                elif not ok_by_index[dep]:
+                    reason = f"depends_on action {dep} did not succeed"
+                if reason:
+                    _push(self._report({"skill": action.get("skill"), "ok": False,
+                                        "error": "dependency_failed",
+                                        "detail": reason}), False, None)
+                    continue
+                feed = data_by_index[dep]
+                if isinstance(feed, dict):
+                    action = dict(action, args={**feed, **(action.get("args") or {})})
             if action.get("missing"):
-                results.append(self._report({"skill": action["skill"], "ok": False,
-                                             "error": "missing_args",
-                                             "missing": action["missing"]}))
+                _push(self._report({"skill": action["skill"], "ok": False,
+                                    "error": "missing_args",
+                                    "missing": action["missing"]}), False, None)
                 continue
             if action.get("confirm"):
                 confirm_pending = True
-                results.append({"skill": action["skill"], "ok": False,
-                                "error": "needs_confirmation",
-                                "data": action.get("args")})
+                _push({"skill": action["skill"], "ok": False,
+                       "error": "needs_confirmation",
+                       "data": action.get("args")}, False, None)
                 continue
             res = self.run_one(action, ctx_by_ext)
-            results.append(res)
+            _push(res, bool(res.get("ok")),
+                  res.get("data") if res.get("ok") else None)
             if res.get("ok"):
                 handled.append(res["skill"])
             elif action.get("on_error") == "abort" and action.get("critical"):

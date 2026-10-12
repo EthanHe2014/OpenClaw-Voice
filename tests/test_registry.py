@@ -285,3 +285,97 @@ def test_dedup_cache_is_bounded():
     assert len(r._seen) == 3
     # the two oldest were evicted, so they run again
     assert "r-0" not in r._seen and "r-4" in r._seen
+
+
+# --- chaining (depends_on) --------------------------------------------------
+
+def test_depends_on_feeds_prior_data_into_next_args():
+    """The whole point: a later action consumes an earlier one's OUTPUT."""
+    r = Registry()
+    r.register(Skill(name="fetch", args={},
+                     fn=lambda a, ctx: {"ok": True,
+                                        "data": {"city": "Shanghai"}},
+                     ext_id="fetch"))
+    seen = {}
+
+    def consume(args, ctx):
+        seen.update(args)
+        return {"ok": True, "speak": "18 degrees in " + args["city"]}
+
+    r.register(Skill(name="weather", args={"city": {"type": "string",
+                                                     "required": True}},
+                     fn=consume, ext_id="weather"))
+    route = {"id": "r-chain", "transcript": "where am I and how hot",
+             "actions": [
+                 {"skill": "fetch", "args": {}},
+                 {"skill": "weather", "args": {}, "depends_on": 0},
+             ], "chat": True}
+    res = r.run_route(route, _Mgr(["fetch", "weather"]))
+    assert res["handled"] == ["fetch", "weather"]
+    assert seen["city"] == "Shanghai"          # output of action 0 reached action 1
+    assert res["results"][1]["speak"] == "18 degrees in Shanghai"
+    assert not res["failures"]
+
+
+def test_depends_on_explicit_args_override_upstream():
+    r = Registry()
+    r.register(Skill(name="fetch", args={},
+                     fn=lambda a, ctx: {"ok": True, "data": {"from": "A",
+                                                              "to": "C"}},
+                     ext_id="fetch"))
+    seen = {}
+    r.register(Skill(name="convert",
+                     args={"from": {"type": "string", "required": False},
+                           "to": {"type": "string", "required": False}},
+                     fn=lambda a, ctx: seen.update(a) or {"ok": True},
+                     ext_id="convert"))
+    route = {"id": "r-over", "transcript": "x", "actions": [
+        {"skill": "fetch", "args": {}},
+        {"skill": "convert", "args": {"to": "F"}, "depends_on": 0},
+    ], "chat": True}
+    r.run_route(route, _Mgr(["fetch", "convert"]))
+    assert seen["from"] == "A" and seen["to"] == "F"  # own arg wins
+
+
+def test_depends_on_failed_upstream_blocks_downstream():
+    ran = []
+    r = Registry(emit=lambda k, d: None)
+    r.register(Skill(name="fetch", args={},
+                     fn=lambda a, ctx: {"ok": False, "error": "skill_error"},
+                     ext_id="fetch"))
+    r.register(Skill(name="weather", args={},
+                     fn=lambda a, ctx: ran.append(1) or {"ok": True},
+                     ext_id="weather"))
+    route = {"id": "r-fail", "transcript": "x", "actions": [
+        {"skill": "fetch", "args": {}},
+        {"skill": "weather", "args": {}, "depends_on": 0},
+    ], "chat": True}
+    res = r.run_route(route, _Mgr(["fetch", "weather"]))
+    assert ran == []                                   # downstream never ran
+    assert res["results"][1]["error"] == "dependency_failed"
+    assert [f["skill"] for f in res["failures"]] == ["fetch", "weather"]
+
+
+def test_depends_on_invalid_index_reported():
+    r = Registry(emit=lambda k, d: None)
+    r.register(Skill(name="calc", args={}, fn=lambda a, ctx: {"ok": True},
+                     ext_id="calc"))
+    # forward/self reference is invalid (must point to an EARLIER action)
+    route = {"id": "r-bad", "transcript": "x", "actions": [
+        {"skill": "calc", "args": {}, "depends_on": 1},
+        {"skill": "calc", "args": {}},
+    ], "chat": True}
+    res = r.run_route(route, _Mgr(["calc"]))
+    assert res["results"][0]["error"] == "dependency_failed"
+
+
+def test_depends_on_none_is_normal():
+    r = Registry()
+    r.register(Skill(name="calc", args={}, fn=lambda a, ctx: {"ok": True},
+                     ext_id="calc"))
+    route = {"id": "r-plain", "transcript": "x", "actions": [
+        {"skill": "calc", "args": {}, "depends_on": None},
+        {"skill": "calc", "args": {}},
+    ], "chat": True}
+    res = r.run_route(route, _Mgr(["calc"]))
+    assert res["handled"] == ["calc", "calc"] and not res["failures"]
