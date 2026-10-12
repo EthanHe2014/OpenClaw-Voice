@@ -8,6 +8,8 @@ actions to the right function.
 import time
 from collections import OrderedDict
 
+from . import dates
+
 
 class Skill:
     def __init__(self, name, fn, description="", args=None, ext_id="",
@@ -73,6 +75,9 @@ def _coerce_arg(vspec, name, value):
                              "detail": f"{name!r} must be a duration phrase or seconds"}
 
     if t == "date":
+        # Accept a phrase ("3pm", "tomorrow 9am") OR an already-absolute
+        # string; _validate_args resolves the phrase to an absolute local value
+        # so the skill receives a clean machine value (see sparkext/dates.py).
         if isinstance(value, str) and value.strip():
             return True, value, None
         return False, None, {"error": "invalid_args", "arg": name,
@@ -98,10 +103,16 @@ def _coerce_arg(vspec, name, value):
                          "detail": f"{name!r} must be a string"}
 
 
-def _validate_args(spec, args):
+def _validate_args(spec, args, now=None):
     """Return (ok, err, coerced). Missing required args are reported, not guessed;
     declared types (string/number/enum/date/duration) are enforced and numeric
-    strings are coerced to numbers."""
+    strings are coerced to numbers.
+
+    A declared `date` arg is additionally RESOLVED to an absolute local value
+    (its phrase -> 'YYYY-MM-DD HH:MM'/'YYYY-MM-DD'/'HH:MM' by `mode`), so the
+    skill stays dumb and never parses natural language. `now` is injectable for
+    deterministic tests; it defaults to the wall clock.
+    """
     missing = [k for k, v in spec.items()
                if v.get("required") and k not in args]
     if missing:
@@ -114,6 +125,17 @@ def _validate_args(spec, args):
         if not ok:
             return False, err, None
         coerced[name] = val
+    # Resolve any declared `date` arg from its phrase to an absolute value.
+    for name, vspec in spec.items():
+        if (vspec.get("type") or "").lower() != "date" or name not in coerced:
+            continue
+        resolved = dates.resolve(coerced[name],
+                                 mode=vspec.get("mode", "datetime"), now=now)
+        if resolved is None:
+            return False, {"error": "invalid_args", "arg": name,
+                           "detail": f"{name!r} is not a recognizable "
+                                     f"date/time phrase"}, None
+        coerced[name] = resolved
     return True, None, coerced
 
 

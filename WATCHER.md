@@ -111,9 +111,13 @@ system behaves exactly like today. Never worse than current.
 3. **Typed args** — the runner validates against each extension's arg schema:
    `string` / `number` / `bool` / `enum` / `date` / `duration`, coercing numeric
    strings and rejecting clearly-wrong or missing args (`invalid_args` /
-   `missing_args`, reported with the offending arg name). The skills that take a
-   time (timer, reminder) parse the phrase themselves, deterministically and
-   offline, using their own clock — the model hands them the literal phrase.
+   `missing_args`, reported with the offending arg name). A declared `date` arg
+   is additionally **resolved** by the runner from the model's literal phrase to
+   an absolute local value (`sparkext/dates.py`: `mode` `datetime`/`date`/`time`,
+   relative + weekday + clock phrases, offline and deterministic), so the skill
+   stays dumb. The skills that take a time (timer, reminder) parse the phrase
+   themselves, deterministically and offline, using their own clock — the model
+   hands them the literal phrase.
 4. **Missing / ambiguous args** — never invent. `missing[]` ⇒ runner asks the
    user; or `intent:"clarify"` if the whole request is ambiguous.
 5. **Pronoun / context** — "turn *it* down" needs history. The watcher gets the

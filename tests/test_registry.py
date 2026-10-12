@@ -45,10 +45,36 @@ def test_bool_is_not_a_number():
 
 
 def test_date_accepts_phrase_rejects_int():
-    ok, _, out = _validate_args(SPEC, {"command": "a", "when": "3pm"})
-    assert ok and out["when"] == "3pm"
+    import time as _t
+    now = _t.mktime((2026, 10, 12, 21, 10, 0, 0, 0, -1))  # Mon 21:10 local
+    ok, _, out = _validate_args(SPEC, {"command": "a", "when": "3pm"}, now=now)
+    # a time-only phrase already past rolls to tomorrow, resolved absolutely
+    assert ok and out["when"] == "2026-10-13 15:00"
     ok, err, _ = _validate_args(SPEC, {"command": "a", "when": 5})
     assert not ok
+
+
+def test_date_phrase_resolved_to_absolute():
+    import time as _t
+    now = _t.mktime((2026, 10, 12, 9, 0, 0, 0, 0, -1))  # Mon 09:00 local
+    ok, _, out = _validate_args(SPEC, {"command": "a", "when": "in 20 minutes"}, now=now)
+    assert ok and out["when"] == "2026-10-12 09:20"
+    ok, _, out = _validate_args(SPEC, {"command": "a", "when": "tomorrow at 9am"}, now=now)
+    assert ok and out["when"] == "2026-10-13 09:00"
+
+
+def test_date_unparseable_phrase_rejected():
+    ok, err, _ = _validate_args(SPEC, {"command": "a", "when": "sometime soon"})
+    assert not ok and err["error"] == "invalid_args" and err["arg"] == "when"
+
+
+def test_date_mode_selects_granularity():
+    import time as _t
+    now = _t.mktime((2026, 10, 12, 9, 0, 0, 0, 0, -1))
+    spec = {"d": {"type": "date", "required": True, "mode": "date"},
+            "t": {"type": "date", "required": True, "mode": "time"}}
+    ok, _, out = _validate_args(spec, {"d": "tomorrow", "t": "noon"}, now=now)
+    assert ok and out["d"] == "2026-10-13" and out["t"] == "12:00"
 
 
 def test_duration_accepts_phrase_or_seconds():

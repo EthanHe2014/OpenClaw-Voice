@@ -143,7 +143,24 @@ when a route is executed, so a skill never runs on garbage. Supported `type`s:
 | `bool` | `true`/`false`, `yes`/`no`, `1`/`0` | `bool` |
 | `enum` | one of `values` | unchanged |
 | `duration` | a phrase (`"5 minutes"`) or seconds | unchanged |
-| `date` | a date/time phrase (`"3pm"`, `"tomorrow 9am"`) | unchanged |
+| `date` | a date/time phrase (`"3pm"`, `"tomorrow 9am"`) | resolved to an absolute local value (see below) |
+
+A declared `date` arg is not just validated — the runner **resolves it** from the
+phrase to an absolute local value before the skill is called, so the skill stays
+dumb (it never parses natural language). The arg may set `"mode"`:
+
+| `mode` | Output | Example (`now` = Mon 2026-10-12 21:10) |
+|---|---|---|
+| `datetime` (default) | `YYYY-MM-DD HH:MM` | `"tomorrow at 9am"` → `2026-10-13 09:00` |
+| `date` | `YYYY-MM-DD` | `"monday"` → `2026-10-19` |
+| `time` | `HH:MM` | `"noon"` → `12:00` |
+
+Rules (offline, stdlib, deterministic — `sparkext/dates.py`): relative
+(`"in 20 minutes"`) resolves from now; a bare hour is guessed by era (1-7 → pm,
+8-11 → am); a weekday means the NEXT occurrence; a time-only phrase already past
+today rolls to tomorrow; a day with no clock time defaults to `00:00`. An
+unparseable phrase is reported as `invalid_args` with the offending arg name, so
+the skill never runs on garbage.
 
 `required: true` marks an arg that must be present. The model normalizes spoken
 words to the right type (the TOOL stays dumb); the registry only rejects values
