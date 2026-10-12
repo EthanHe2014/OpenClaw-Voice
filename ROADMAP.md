@@ -24,7 +24,7 @@ Rules for builders:
 - [x] builder-F **clipboard** — read/write the macOS clipboard; tool `clipboard(command=read|write, text=...)`
 - [x] builder-G **appcontrol** — open/quit/focus apps via osascript; tool `app(command=open|quit|focus, name=...)`
 - [x] builder-G **volume** — system output volume + mute; tool `sysvolume(command=set|up|down|mute, level=...)`
-- [~] builder-A **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
+- [x] builder-A **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
 - [ ] **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
 - [ ] **translation** — translate text (network scope); tool `translate(text=..., to=...)`
@@ -67,3 +67,4 @@ Rules for builders:
 - [x] builder-G **timer** — done (v0.1.0, tools-only: parse duration -> schedule speaking alert via task engine)
 - [x] builder-G **appcontrol** — done (v0.1.0, tools-only: app open/quit/focus/running via osascript)
 - [x] builder-G **volume** — done (v0.1.0, tools-only: sysvolume set/up/down/mute/unmute/get via osascript)
+- [x] builder-A **screenshot** — done (v0.1.0, tools-only: capture screen/frontmost-window via screencapture + osascript)
