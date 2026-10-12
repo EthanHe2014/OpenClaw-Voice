@@ -42,7 +42,7 @@ Rules for builders:
 
 - [x] builder-F **failure visibility** — dashboard event + route-log field when a skill fails
 - [ ] **fast path** — skip the agent when every action succeeded and no prose needed (opt-in per skill)
-- [~] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
+- [x] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
 - [ ] **date args** — let skills declare a `date` arg the runner resolves from phrases
 - [ ] **chaining test** — prove `depends_on` across two actions end to end
 - [ ] **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
@@ -71,3 +71,4 @@ Rules for builders:
 - [x] builder-A **spelling** — done (v0.1.0, tools-only: spell letters offline + define via macOS DictionaryServices)
 - [x] builder-A **reminder** — done (v0.1.0, tools-only: parse relative/clock times -> task engine speak)
 - [x] builder-A **systemstats** — done (v0.1.0, tools-only: disk/battery/mem via df/pmset/vm_stat)
+- [x] builder-A **arg schemas** — done (registry enforces string/number/enum/date/duration + coerces numeric strings; live loop restarted clean)
