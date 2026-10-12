@@ -1,0 +1,12 @@
+{
+  "id": "systemstats",
+  "name": "System Stats",
+  "version": "0.1.0",
+  "description": "Report disk, battery, and memory stats for the Mac, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
