@@ -1,0 +1,12 @@
+{
+  "id": "spelling",
+  "name": "Spelling",
+  "version": "0.1.0",
+  "description": "Spell a word letter-by-letter or look up its definition from the macOS dictionary, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
