@@ -29,7 +29,7 @@ Rules for builders:
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
 - [ ] **translation** — translate text (network scope); tool `translate(text=..., to=...)`
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
-- [ ] **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
+- [~] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
 - [ ] **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
 - [ ] **focus** — Do Not Disturb / focus mode; tool `focus(on|off, minutes=...)`
