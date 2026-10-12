@@ -104,9 +104,11 @@ system behaves exactly like today. Never worse than current.
 2. **Chaining / dependencies** — `depends_on` lets a later action consume an
    earlier result (e.g. "get my next event, then text me the address").
 3. **Typed args** — the runner validates against each extension's arg schema:
-   `string` / `number` / `bool` / `enum` / `date` / `duration`. Relative times
-   are resolved by the runner using `ts`+`tz`, not by the model, so "in 20 min"
-   becomes an absolute clock time deterministically.
+   `string` / `number` / `bool` / `enum` / `date` / `duration`, coercing numeric
+   strings and rejecting clearly-wrong or missing args (`invalid_args` /
+   `missing_args`, reported with the offending arg name). The skills that take a
+   time (timer, reminder) parse the phrase themselves, deterministically and
+   offline, using their own clock — the model hands them the literal phrase.
 4. **Missing / ambiguous args** — never invent. `missing[]` ⇒ runner asks the
    user; or `intent:"clarify"` if the whole request is ambiguous.
 5. **Pronoun / context** — "turn *it* down" needs history. The watcher gets the

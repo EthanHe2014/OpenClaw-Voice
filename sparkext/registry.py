@@ -73,6 +73,17 @@ def _coerce_arg(vspec, name, value):
         return False, None, {"error": "invalid_args", "arg": name,
                              "detail": f"{name!r} must be a date/time phrase"}
 
+    if t in ("bool", "boolean"):
+        if isinstance(value, bool):
+            return True, value, None
+        if isinstance(value, str) and value.strip().lower() in (
+                "true", "false", "yes", "no", "1", "0"):
+            return True, value.strip().lower() in ("true", "yes", "1"), None
+        if isinstance(value, (int, float)):
+            return True, bool(value), None
+        return False, None, {"error": "invalid_args", "arg": name,
+                             "detail": f"{name!r} must be true/false"}
+
     # default: string
     if isinstance(value, str):
         return True, value, None

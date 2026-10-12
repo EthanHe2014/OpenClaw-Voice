@@ -119,12 +119,36 @@ The manifest declares what it needs; the loader enforces:
 - `speak` — may call `ctx.speak`
 - `agent` — may call `ctx.ask_agent`
 - `tasks` — may call `ctx.create_task`
-- `network` — outbound HTTP (future; off by default)
+- `network` — outbound HTTP (not exposed to extensions yet; needs a host allowlist)
 - `files` — read/write outside its own `data_dir` (off by default)
 - `log` — dashboard events
 
 An extension that calls something outside its scopes gets a logged warning and
 a no-op, not a crash. Keeps a random extension from silently joining your Wi-Fi.
+
+> Note: no tool in the roadmap currently needs `network`. The tools that looked
+> like they would (weather, translation, web search, mail) are left unchecked
+> until a host HTTP capability exists, so nothing ships with a scope it cannot
+> actually use.
+
+## Tool arg schemas
+
+A tool declares each arg it accepts; the registry **enforces the declared type**
+when a route is executed, so a skill never runs on garbage. Supported `type`s:
+
+| `type` | Accepts | Coerced to |
+|---|---|---|
+| `string` | text (numbers are stringified) | `str` |
+| `number` | number, or a numeric string (e.g. `"42"`) | `int`/`float` |
+| `bool` | `true`/`false`, `yes`/`no`, `1`/`0` | `bool` |
+| `enum` | one of `values` | unchanged |
+| `duration` | a phrase (`"5 minutes"`) or seconds | unchanged |
+| `date` | a date/time phrase (`"3pm"`, `"tomorrow 9am"`) | unchanged |
+
+`required: true` marks an arg that must be present. The model normalizes spoken
+words to the right type (the TOOL stays dumb); the registry only rejects values
+that are clearly wrong (`invalid_args`) or absent (`missing_args`), and a failed
+arg check is reported with the offending arg name + a human detail.
 
 ## Isolation & failure
 
@@ -149,12 +173,16 @@ inline. (The Control UI widget can render this read-only.)
 
 ## Build order
 
-1. **Loader + manifest + context** (`sparkext/` package) — the engine. *(this commit)*
-2. **Reference extension** (`extensions/clock/`) — proves the contract end to end.
+1. **Loader + manifest + context** (`sparkext/` package) — the engine. *(done)*
+2. **Reference extension** (`extensions/clock/`) — proves the contract end to end. *(done)*
 3. **Wire hooks into `spark_web.py`** — call `on_transcript` before `ask_spark`,
-   `on_reply` before `speak`, `on_speak` inside `speak`. *(step 2 — touches the live loop)*
-4. **Port OpenMemo** into `extensions/openmemo/` as the big reference.
-5. **Extensions dashboard panel** + enable/disable toggle.
+   `on_reply` before `speak`, `on_speak` inside `speak`. *(done — touches the live loop)*
+4. **Port OpenMemo** into `extensions/openmemo/` as the big reference. *(todo)*
+5. **Extensions dashboard panel** + enable/disable toggle. *(todo)*
+
+Ported tools so far (all tools-only, return `data`, never speak): clock,
+calculator, music, notes, todo, dice, timer, appcontrol, volume, clipboard,
+unitconv, screenshot, spelling, reminder, systemstats.
 
 ## Non-goals (for now)
 

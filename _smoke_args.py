@@ -16,6 +16,7 @@ def main():
         "word": {"type": "string", "required": False},
         "when": {"type": "date", "required": False},
         "dur": {"type": "duration", "required": False},
+        "flag": {"type": "bool", "required": False},
     }
 
     ok, err, out = _validate_args(spec, {"command": "a", "level": "42"})
@@ -49,6 +50,14 @@ def main():
     ok, err, out = _validate_args(spec, {"command": "a", "word": 7})
     assert ok and out["word"] == "7", (ok, err, out)
     print("  number-ish string arg coerced to str")
+
+    ok, err, out = _validate_args(spec, {"command": "a", "flag": "yes"})
+    assert ok and out["flag"] is True, (ok, err, out)
+    ok, err, out = _validate_args(spec, {"command": "a", "flag": "false"})
+    assert ok and out["flag"] is False, (ok, err, out)
+    ok, err, out = _validate_args(spec, {"command": "a", "flag": "maybe"})
+    assert not ok, (ok, err)
+    print("  bool coerced/validated")
 
     ok, err, out = _validate_args(spec, {"level": 1})
     assert not ok and err["error"] == "missing_args" and err["missing"] == ["command"]
