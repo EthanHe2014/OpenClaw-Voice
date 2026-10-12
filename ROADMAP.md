@@ -54,7 +54,7 @@ Rules for builders:
 - [ ] **context window** — feed last N turns to the watcher for pronouns ("turn it down")
 - [ ] **unit tests** — pytest suite for registry/watcher/bridge (no live model needed)
 - [ ] **hot-reload test** — prove dropping a folder loads it without a restart
-- [ ] **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
+- [~] builder-A **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
 
 ## Done (append `[x] <rid>` as jobs finish)
 
