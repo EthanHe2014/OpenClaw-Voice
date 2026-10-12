@@ -6,6 +6,7 @@ loaded extensions, feeds the catalog to the watcher, and dispatches a route's
 actions to the right function.
 """
 import time
+from collections import OrderedDict
 
 
 class Skill:
@@ -113,9 +114,12 @@ def _validate_args(spec, args):
 
 
 class Registry:
-    def __init__(self, emit=None):
+    def __init__(self, emit=None, dedup=True, seen_max=512):
         self.skills = {}                # name -> Skill
         self.emit = emit                # optional dashboard event callback
+        self.dedup = dedup              # ignore a route id we already ran
+        self.seen_max = seen_max
+        self._seen = OrderedDict()      # route id -> result (bounded, LRU)
 
     def register(self, skill):
         self.skills[skill.name] = skill
@@ -190,8 +194,26 @@ class Registry:
                            "ms": int((time.time() - t0) * 1000)}
         return self._report(res)
 
+    def _remember(self, rid, result):
+        """Bounded LRU of executed route ids so a retried hook never replays."""
+        if not self.dedup or not rid:
+            return
+        self._seen[rid] = result
+        self._seen.move_to_end(rid)
+        while len(self._seen) > self.seen_max:
+            self._seen.popitem(last=False)
+
     def run_route(self, route, manager):
-        """Execute every action in order. Returns the RESULT document."""
+        """Execute every action in order. Returns the RESULT document.
+
+        Idempotent by route `id`: a repeated/retried route is not executed
+        twice; the prior RESULT is returned with `deduped: true`.
+        """
+        rid = route.get("id")
+        if self.dedup and rid and rid in self._seen:
+            prior = dict(self._seen[rid])
+            prior["deduped"] = True
+            return prior
         ctx_by_ext = {e.id: e.ctx for e in manager.extensions.values()}
         results = []; handled = []
         confirm_pending = False
@@ -213,7 +235,9 @@ class Registry:
                 handled.append(res["skill"])
             elif action.get("on_error") == "abort" and action.get("critical"):
                 break
-        return _build_result(route, results, handled, confirm_pending)
+        result = _build_result(route, results, handled, confirm_pending)
+        self._remember(rid, result)
+        return result
 
 
 def _build_result(route, results, handled, confirm_pending):

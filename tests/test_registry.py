@@ -216,3 +216,72 @@ def test_forward_to_agent_false_when_pure_skill_with_output():
              [{"skill": "calc", "args": {}}], "chat": False}
     res = r.run_route(route, _Mgr(["calc"]))
     assert res["forward_to_agent"] is False
+
+
+# --- idempotency ------------------------------------------------------------
+
+def test_repeated_route_id_runs_once():
+    calls = []
+    r = Registry()
+    r.register(Skill(name="calc", args={},
+                     fn=lambda a, ctx: calls.append(1) or {"ok": True, "speak": "2"},
+                     ext_id="calc"))
+    route = {"id": "r-dup", "transcript": "1+1", "actions":
+             [{"skill": "calc", "args": {}}], "chat": True}
+    first = r.run_route(route, _Mgr(["calc"]))
+    second = r.run_route(route, _Mgr(["calc"]))
+    assert calls == [1]  # the skill body ran exactly once
+    assert first["handled"] == ["calc"]
+    assert second["handled"] == ["calc"] and second.get("deduped") is True
+
+
+def test_distinct_route_ids_both_run():
+    calls = []
+    r = Registry()
+    r.register(Skill(name="calc", args={},
+                     fn=lambda a, ctx: calls.append(1) or {"ok": True},
+                     ext_id="calc"))
+    base = {"transcript": "1+1", "actions": [{"skill": "calc", "args": {}}],
+            "chat": True}
+    r.run_route(dict(base, id="r-a"), _Mgr(["calc"]))
+    r.run_route(dict(base, id="r-b"), _Mgr(["calc"]))
+    assert calls == [1, 1]
+
+
+def test_missing_route_id_never_dedups():
+    calls = []
+    r = Registry()
+    r.register(Skill(name="calc", args={},
+                     fn=lambda a, ctx: calls.append(1) or {"ok": True},
+                     ext_id="calc"))
+    route = {"transcript": "1+1", "actions": [{"skill": "calc", "args": {}}],
+             "chat": True}
+    r.run_route(route, _Mgr(["calc"]))
+    r.run_route(route, _Mgr(["calc"]))
+    assert calls == [1, 1]
+
+
+def test_dedup_can_be_disabled():
+    calls = []
+    r = Registry(dedup=False)
+    r.register(Skill(name="calc", args={},
+                     fn=lambda a, ctx: calls.append(1) or {"ok": True},
+                     ext_id="calc"))
+    route = {"id": "r-x", "transcript": "1+1", "actions":
+             [{"skill": "calc", "args": {}}], "chat": True}
+    r.run_route(route, _Mgr(["calc"]))
+    r.run_route(route, _Mgr(["calc"]))
+    assert calls == [1, 1]
+
+
+def test_dedup_cache_is_bounded():
+    r = Registry(seen_max=3)
+    r.register(Skill(name="calc", args={}, fn=lambda a, ctx: {"ok": True},
+                     ext_id="calc"))
+    for i in range(5):
+        r.run_route({"id": f"r-{i}", "transcript": "x",
+                     "actions": [{"skill": "calc", "args": {}}], "chat": True},
+                    _Mgr(["calc"]))
+    assert len(r._seen) == 3
+    # the two oldest were evicted, so they run again
+    assert "r-0" not in r._seen and "r-4" in r._seen
