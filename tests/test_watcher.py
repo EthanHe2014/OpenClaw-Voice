@@ -133,3 +133,72 @@ def test_route_schema_shape():
     assert "actions" in ROUTE_SCHEMA["required"]
     assert ROUTE_SCHEMA["properties"]["intent"]["enum"] == [
         "skill", "chat", "mixed", "clarify", "noop"]
+
+
+# --- context window: TurnBuffer ---------------------------------------------
+
+from sparkext.watcher import TurnBuffer  # noqa: E402
+
+
+def test_turnbuffer_keeps_only_the_last_n():
+    tb = TurnBuffer(3)
+    for t in ("a", "b", "c", "d"):
+        tb.add(t)
+    assert tb.recent() == ["b", "c", "d"]      # oldest evicted
+    assert len(tb) == 3
+
+
+def test_turnbuffer_recent_n_and_clear():
+    tb = TurnBuffer(6)
+    for t in ("one", "two", "three"):
+        tb.add(t)
+    assert tb.recent(2) == ["two", "three"]
+    assert tb.recent(0) == []
+    tb.clear()
+    assert tb.recent() == []
+
+
+def test_turnbuffer_dedups_consecutive_and_ignores_blank():
+    tb = TurnBuffer(6)
+    tb.add("hello")
+    tb.add("hello")          # retried utterance
+    tb.add("  ")
+    tb.add("")
+    assert tb.recent() == ["hello"]
+
+
+def test_turnbuffer_size_zero_is_inert():
+    tb = TurnBuffer(0)
+    tb.add("anything")
+    assert tb.recent() == [] and len(tb) == 0
+
+
+def test_bridge_feeds_prior_turns_as_history(monkeypatch):
+    # A fake watcher records the history it is handed.
+    class _W:
+        def __init__(self):
+            self.hist = []
+
+        def route(self, transcript, skills, history=None):
+            self.hist.append((transcript, list(history or [])))
+            return {"intent": "chat", "actions": [], "transcript": transcript}
+
+    from sparkext.bridge import Bridge
+
+    class _Reg:
+        def catalog(self):
+            return []
+
+        def run_route(self, r, m):
+            return {"handled": []}
+
+    class _Mgr:
+        extensions = {}
+
+    w = _W()
+    b = Bridge(_Mgr(), _Reg(), w, history_size=4)
+    b.process("play some music")
+    b.process("turn it down")
+    # first turn: no history; second turn: the first utterance is history
+    assert w.hist[0][1] == []
+    assert w.hist[1][1] == ["play some music"]

@@ -14,9 +14,10 @@ The watcher stack (see WATCHER.md) sits on top:
 
 from .context import Context
 from .loader import Extension, Manager, discover, load_extension
-from .watcher import Watcher
+from .watcher import Watcher, TurnBuffer
 from .registry import Registry, Skill
 from .bridge import Bridge, format_for_agent
 
 __all__ = ["Context", "Extension", "Manager", "discover", "load_extension",
-           "Watcher", "Registry", "Skill", "Bridge", "format_for_agent"]
+           "Watcher", "TurnBuffer", "Registry", "Skill", "Bridge",
+           "format_for_agent"]

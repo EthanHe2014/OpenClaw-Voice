@@ -117,7 +117,16 @@ system behaves exactly like today. Never worse than current.
 4. **Missing / ambiguous args** — never invent. `missing[]` ⇒ runner asks the
    user; or `intent:"clarify"` if the whole request is ambiguous.
 5. **Pronoun / context** — "turn *it* down" needs history. The watcher gets the
-   last N turns; `context_used` records what it leaned on.
+   last N turns (N=6); `context_used` records what it leaned on. Implemented: the
+   bridge owns a bounded `TurnBuffer` (stdlib `deque`, size 6) and passes its
+   contents to `watcher.route(..., history=...)` on every turn, so pronouns and
+   ellipsis ("do it again") resolve across live turns. The buffer records the
+   utterance *after* routing, so the current turn is never duplicated into its
+   own history; it dedups a repeated utterance and never raises into the loop
+   (empty buffer => exactly the pre-context behaviour). The prompt tells the
+   router to use history only to resolve references, never to re-run a previous
+   request. Covered by `tests/test_watcher.py` (TurnBuffer) and
+   `tests/test_bridge.py` (bridge feeds history).
 6. **Safety** — destructive skills carry `confirm:true`; runner gates on the next
    utterance being a yes. Implemented in `sparkext/bridge.py`: when a route is
    blocked, the bridge stashes it and, on the NEXT utterance, classifies a short
@@ -196,5 +205,6 @@ a full agent round-trip for trivia like "what time is it". Default stays
 1. **Brain:** local 7–8B (private, needs install) vs gateway flash (robust, ships
    your speech). My lean: local, with constrained decoding.
 2. **History window** for pronoun resolution — how many turns does the watcher see?
+   Settled: 6 (the bridge's `TurnBuffer` default), tunable via `history_size`.
 3. **Fast path** on by default, or opt-in per skill?
 4. **Confidence threshold** — 0.7? Tune with the route log.

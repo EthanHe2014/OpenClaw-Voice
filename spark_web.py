@@ -1329,7 +1329,7 @@ def init_extensions():
                              daemon=True).start()
         BRIDGE = Bridge(EXT_MGR, reg, watcher,
                         log_path=os.path.join(ROOT, "voice_routes.jsonl"),
-                        emit=add_event)
+                        emit=add_event, history_size=6)
         add_event("INFO", f"extensions: {[s['name'] for s in reg.catalog()]}")
         _start_ext_reload(EXT_MGR)
     except Exception as e:

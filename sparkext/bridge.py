@@ -20,6 +20,8 @@ import json
 import re
 import time
 
+from .watcher import TurnBuffer
+
 
 # Short affirmative / negative replies that resolve a pending confirmation.
 # Deterministic on purpose: the runner gates on the words, not on the model.
@@ -57,13 +59,18 @@ def _confirmation_verdict(text):
 
 
 class Bridge:
-    def __init__(self, manager, registry, watcher, log_path=None, emit=None):
+    def __init__(self, manager, registry, watcher, log_path=None, emit=None,
+                 history_size=6):
         self.manager = manager
         self.registry = registry
         self.watcher = watcher
         self.log_path = log_path
         self.emit = emit
         self._pending = None   # route blocked on confirmation, awaiting yes/no
+        # Last few user turns, so the watcher can resolve pronouns ("turn it
+        # down"). Bounded + stdlib; if it is ever empty the watcher just sees the
+        # current turn, i.e. exactly the pre-context-window behaviour.
+        self.turns = TurnBuffer(history_size)
 
     def _log_route(self, route, result):
         if not self.log_path:
@@ -119,20 +126,27 @@ class Bridge:
         return result, route
 
     def process(self, transcript, history=None):
-        """Full pass. Returns (agent_text, result, route)."""
+        """Full pass. Returns (agent_text, result, route).
+
+        `history` may be passed explicitly (tests); otherwise the bridge's own
+        bounded turn buffer is used, so pronouns resolve across live turns.
+        """
         text = (transcript or "").strip()
+        ctx_history = history if history is not None else self.turns.recent()
         # --- resolve a pending confirmation first ---
         if self._pending:
             verdict = _confirmation_verdict(text)
             if verdict == "yes":
                 pending = self._pending
                 self._pending = None
+                self.turns.add(text)
                 result, route = self._run_confirmed(pending)
                 self._log_route(route, result)
                 self._emit_result(result, route)
                 return format_for_agent(text, result), result, route
             if verdict == "no":
                 self._pending = None
+                self.turns.add(text)
                 result = {"handled": [], "results": [], "failures": [],
                           "forward_to_agent": True, "needs_confirmation": False}
                 note = ("\n\n[WATCHER] the user DECLINED a pending action. Do not "
@@ -141,7 +155,10 @@ class Bridge:
             # anything else: the user moved on; drop the pending route
             self._pending = None
         route = self.watcher.route(text, self.registry.catalog(),
-                                   history=history)
+                                   history=ctx_history)
+        # Record the turn for the NEXT one (after routing, so the current turn is
+        # never duplicated into its own history).
+        self.turns.add(text)
         if route.get("intent") in ("chat", "noop") or not route.get("actions"):
             # nothing to run: hand the raw text straight to the agent
             return transcript, {"handled": []}, route

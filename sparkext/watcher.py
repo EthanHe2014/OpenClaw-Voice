@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 import urllib.request
+from collections import deque
 
 
 # --- the JSON schema the model must emit (structured outputs) ----------------
@@ -51,6 +52,41 @@ def _passthrough(transcript, why):
         "intent": "chat", "confidence": 0.0, "actions": [],
         "chat": True, "clarify": None, "notes": f"passthrough ({why})",
     }
+
+
+class TurnBuffer:
+    """Bounded ring of the last few user utterances (oldest first).
+
+    The watcher sees these so it can resolve pronouns/ellipsis ("turn *it*
+    down"). Stdlib only, O(1) push, and it can never raise into the pipeline:
+    a bad push just yields empty history, i.e. exactly the old behaviour.
+    """
+
+    def __init__(self, size=6):
+        self.size = max(0, int(size))
+        self._turns = deque(maxlen=self.size)
+
+    def add(self, text):
+        t = (text or "").strip()
+        if not t or self.size == 0:
+            return
+        if self._turns and self._turns[-1] == t:
+            return                      # a retried/duplicated utterance
+        self._turns.append(t)
+
+    def recent(self, n=None):
+        if self.size == 0 or not self._turns:
+            return []
+        n = self.size if n is None else max(0, int(n))
+        if n == 0:
+            return []
+        return list(self._turns)[-n:]
+
+    def clear(self):
+        self._turns.clear()
+
+    def __len__(self):
+        return len(self._turns)
 
 
 class Watcher:
@@ -112,7 +148,12 @@ class Watcher:
             "- If the whole request is ambiguous, use intent 'clarify' and put the "
             "question in `clarify`.\n"
             "- Set confidence 0..1. If unsure, prefer 'chat' with low confidence.\n"
-            "- Set `chat` true if a spoken reply is still wanted (almost always true).\n\n"
+            "- Set `chat` true if a spoken reply is still wanted (almost always true).\n"
+            "- Earlier user turns may appear before the current one as context. \n"
+            "  Use them ONLY to resolve pronouns/ellipsis (e.g. 'turn it down' -> \n"
+            "  music volume, 'do it again' -> the previous skill). Do NOT act on a \n"
+            "  previous request again; route only what the CURRENT turn asks. When \n"
+            "  you lean on a prior turn, name it in `context_used`.\n\n"
             "Examples:\n"
             "  user: \"what's 47 times 89\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"calculator\",\"args\":{\"expr\":\"47*89\"},"
