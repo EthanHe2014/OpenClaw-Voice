@@ -27,7 +27,7 @@ Rules for builders:
 - [x] builder-A **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
 - [x] builder-A **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
-- [~] builder-C **translation** — translate common text offline (phrasebook); tool `translate(text=..., to=...)`
+- [x] builder-C **translation** — translate common text offline (phrasebook); tool `translate(text=..., to=...)`
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
 - [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
@@ -73,3 +73,4 @@ Rules for builders:
 - [x] builder-A **systemstats** — done (v0.1.0, tools-only: disk/battery/mem via df/pmset/vm_stat)
 - [x] builder-A **arg schemas** — done (registry enforces string/number/enum/date/duration + coerces numeric strings; live loop restarted clean)
 - [x] builder-A **docs pass** — EXTENSIONS.md arg-schema table + scope reality, WATCHER.md typed-args corrected to match
+- [x] builder-C **translation** — done (v0.1.0, tools-only: translate text/to/from offline phrasebook)
