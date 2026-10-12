@@ -94,6 +94,7 @@ LOCK = threading.Lock()
 # exactly as before, which is the safety invariant.
 EXT_MGR = None
 BRIDGE = None
+EXT_REG = None
 
 def add_event(kind, detail):
     with LOCK:
@@ -965,6 +966,8 @@ margin-right:8px;animation:p 1.4s infinite}@keyframes p{50%{opacity:.35}}
     <div id=evwrap style="user-select:text;-webkit-user-select:text"><table id=ev></table></div></div>
   <div class=pan wide><div class=lbl>tasks <span id=taskcount class=sub style="text-transform:none;letter-spacing:0"></span></div>
     <table id=tk></table></div>
+  <div class=pan wide><div class=lbl>extensions <span id=extcount class=sub style="text-transform:none;letter-spacing:0"></span></div>
+    <table id=ext></table></div>
   <div class=pan wide><div class=sub id=stat></div></div>
 </div>
 <script>
@@ -1008,6 +1011,25 @@ async function tick(){
     const el=document.getElementById('tk');
     if(el._html!==html){ el.innerHTML=html||'<tr><td class=k>no tasks yet</td></tr>'; el._html=html; }
     window._tasksInit=true;
+  }catch(e){}
+  try{
+    const r3=await fetch('/skills?'+Date.now(),{cache:'no-store'}); const x=await r3.json();
+    document.getElementById('extcount').textContent=x.tool_count+' tools · '+(x.extensions||[]).length+' extensions';
+    let xh='';
+    for(const e of (x.extensions||[])){
+      const st=e.error?'<span class="tk-st cancelled">failed</span>'
+        :(e.active?'<span class="tk-st completed">active</span>'
+        :(e.enabled?'<span class="tk-st pending">idle</span>':'<span class="tk-st">off</span>'));
+      const scopes=(e.scopes===null||e.scopes===undefined)?'*':(e.scopes||[]).join(',')||'—';
+      xh+='<tr><td>'+String(e.id).replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>v'+String(e.version||'')+'</td>'
+        +'<td>'+st+'</td>'
+        +'<td class=k>'+String(scopes).replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>'+String((e.hooks||[]).join(',')).replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>'+String(e.error||'').replace(/</g,'&lt;')+'</td></tr>';
+    }
+    const xe=document.getElementById('ext');
+    if(xe._html!==xh){ xe.innerHTML=xh||'<tr><td class=k>no extensions loaded</td></tr>'; xe._html=xh; }
   }catch(e){}
 }
 let _micInit=false;
@@ -1187,6 +1209,21 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
             return
+        if path == "/skills":
+            exts = EXT_MGR.status() if EXT_MGR is not None else []
+            tool_map = {}
+            if EXT_REG is not None:
+                for s in EXT_REG.catalog():
+                    tool_map.setdefault(s.get("name"), s.get("args") or {})
+            body = json.dumps({
+                "extensions": exts,
+                "tool_count": len(tool_map),
+                "tools": {k: sorted(v.keys()) for k, v in tool_map.items()},
+            }).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         if path == "/state":
             with LOCK:
                 body = json.dumps({k:v for k,v in STATE.items() if k!="events"} | {"events":STATE["events"]})
@@ -1205,7 +1242,7 @@ class H(BaseHTTPRequestHandler):
 def init_extensions():
     """Load extensions and start the watcher router. Guarded: any failure just
     leaves EXT_MGR/BRIDGE as None and the pipeline behaves as before."""
-    global EXT_MGR, BRIDGE
+    global EXT_MGR, BRIDGE, EXT_REG
     try:
         from sparkext import Manager, Registry, Watcher, Bridge
         EXT_MGR = Manager(
@@ -1215,6 +1252,7 @@ def init_extensions():
             emit=add_event)
         EXT_MGR.load_all(force=True)
         reg = Registry(emit=add_event).collect_from(EXT_MGR)
+        EXT_REG = reg
         watcher = Watcher(timeout=15.0)
         if watcher.available():
             # warm the local model so the first real turn is not slow
@@ -1238,7 +1276,10 @@ def _start_ext_reload(mgr):
             try:
                 if mgr.reload_tick() and BRIDGE is not None:
                     from sparkext import Registry
-                    BRIDGE.registry = Registry(emit=add_event).collect_from(mgr)
+                    global EXT_REG
+                    new_reg = Registry(emit=add_event).collect_from(mgr)
+                    BRIDGE.registry = new_reg
+                    EXT_REG = new_reg
             except Exception:
                 pass
     threading.Thread(target=_loop, daemon=True).start()
