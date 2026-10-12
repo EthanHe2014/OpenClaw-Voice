@@ -45,7 +45,7 @@ Rules for builders:
 - [x] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
 - [ ] **date args** — let skills declare a `date` arg the runner resolves from phrases
 - [x] builder-D **chaining test** — prove `depends_on` across two actions end to end
-- [~] builder-D **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
+- [x] builder-D **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
 - [x] builder-B **idempotency** — dedup routes by id so a retried hook never double-creates
 - [x] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
 - [x] builder-D **route log view** — dashboard view of `voice_routes.jsonl` with pass/fail
