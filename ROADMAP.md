@@ -53,7 +53,7 @@ Rules for builders:
 - [ ] **few-shot tuning** — mine `voice_routes.jsonl` for bad routes, add examples
 - [ ] **context window** — feed last N turns to the watcher for pronouns ("turn it down")
 - [x] builder-B **unit tests** — pytest suite for registry/watcher/bridge (no live model needed)
-- [ ] **hot-reload test** — prove dropping a folder loads it without a restart
+- [~] builder-B **hot-reload test** — prove dropping a folder loads it without a restart
 - [x] builder-A **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
 
 ## Done (append `[x] <rid>` as jobs finish)
