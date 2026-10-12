@@ -29,7 +29,7 @@ Rules for builders:
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
 - [ ] **translation** — translate text (network scope); tool `translate(text=..., to=...)`
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
-- [~] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
+- [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
 - [ ] **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
 - [ ] **focus** — Do Not Disturb / focus mode; tool `focus(on|off, minutes=...)`
@@ -69,3 +69,4 @@ Rules for builders:
 - [x] builder-G **volume** — done (v0.1.0, tools-only: sysvolume set/up/down/mute/unmute/get via osascript)
 - [x] builder-A **screenshot** — done (v0.1.0, tools-only: capture screen/frontmost-window via screencapture + osascript)
 - [x] builder-A **spelling** — done (v0.1.0, tools-only: spell letters offline + define via macOS DictionaryServices)
+- [x] builder-A **reminder** — done (v0.1.0, tools-only: parse relative/clock times -> task engine speak)
