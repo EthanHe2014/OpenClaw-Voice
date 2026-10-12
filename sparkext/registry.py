@@ -22,13 +22,83 @@ class Skill:
                 "args": self.args}
 
 
+def _coerce_arg(vspec, name, value):
+    """Enforce/coerce ONE declared arg type. Returns (ok, value, err).
+
+    Types a skill may declare:
+      - enum:     value must be in `values`
+      - number:   int/float, or a numeric string (coerced)
+      - duration: a phrase string, or a numeric amount of seconds
+      - date:     a date/time phrase string
+      - string:   anything (numbers are stringified)
+    The TOOL stays dumb: the model normalizes to the right type, and the registry
+    only rejects values that are clearly wrong so a skill never runs on garbage.
+    """
+    t = (vspec.get("type") or "string").lower()
+
+    if t == "enum":
+        values = vspec.get("values") or []
+        if value not in values:
+            return False, None, {"error": "invalid_args", "arg": name,
+                                 "detail": f"{name!r} must be one of {values}"}
+        return True, value, None
+
+    if t == "number":
+        if isinstance(value, bool):
+            return False, None, {"error": "invalid_args", "arg": name,
+                                 "detail": f"{name!r} must be a number"}
+        if isinstance(value, (int, float)):
+            return True, value, None
+        if isinstance(value, str) and value.strip():
+            try:
+                return True, float(value.strip()), None
+            except ValueError:
+                pass
+        return False, None, {"error": "invalid_args", "arg": name,
+                             "detail": f"{name!r} must be a number"}
+
+    if t == "duration":
+        if isinstance(value, bool):
+            value = None
+        elif isinstance(value, (int, float)):
+            return True, value, None  # seconds
+        elif isinstance(value, str) and value.strip():
+            return True, value, None  # phrase, parsed by the skill
+        return False, None, {"error": "invalid_args", "arg": name,
+                             "detail": f"{name!r} must be a duration phrase or seconds"}
+
+    if t == "date":
+        if isinstance(value, str) and value.strip():
+            return True, value, None
+        return False, None, {"error": "invalid_args", "arg": name,
+                             "detail": f"{name!r} must be a date/time phrase"}
+
+    # default: string
+    if isinstance(value, str):
+        return True, value, None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True, str(value), None
+    return False, None, {"error": "invalid_args", "arg": name,
+                         "detail": f"{name!r} must be a string"}
+
+
 def _validate_args(spec, args):
-    """Return (ok, err). Missing required args are reported, not guessed."""
+    """Return (ok, err, coerced). Missing required args are reported, not guessed;
+    declared types (string/number/enum/date/duration) are enforced and numeric
+    strings are coerced to numbers."""
     missing = [k for k, v in spec.items()
                if v.get("required") and k not in args]
     if missing:
-        return False, {"error": "missing_args", "missing": missing}
-    return True, None
+        return False, {"error": "missing_args", "missing": missing}, None
+    coerced = dict(args)
+    for name, vspec in spec.items():
+        if name not in args:
+            continue
+        ok, val, err = _coerce_arg(vspec, name, args[name])
+        if not ok:
+            return False, err, None
+        coerced[name] = val
+    return True, None, coerced
 
 
 class Registry:
@@ -89,14 +159,15 @@ class Registry:
         if sk is None:
             res = {"skill": name, "ok": False, "error": "unknown_skill"}
         else:
-            ok, err = _validate_args(sk.args, action.get("args") or {})
+            ok, err, coerced = _validate_args(sk.args, action.get("args") or {})
             if not ok:
                 res = {"skill": name, "ok": False, "error": err["error"],
-                       "missing": err.get("missing", [])}
+                       "missing": err.get("missing", []),
+                       "arg": err.get("arg"), "detail": err.get("detail")}
             else:
                 ctx = ctx_by_ext.get(sk.ext_id)
                 try:
-                    out = sk.fn(action.get("args") or {}, ctx) or {}
+                    out = sk.fn(coerced, ctx) or {}
                     out = dict(out)
                     out.setdefault("skill", name)
                     out["ok"] = out.get("ok", True)
@@ -137,7 +208,8 @@ class Registry:
 def _build_result(route, results, handled, confirm_pending):
     has_output = any(r.get("speak") for r in results if r.get("ok"))
     failures = [{"skill": r.get("skill"), "error": r.get("error"),
-                 "missing": r.get("missing")}
+                 "missing": r.get("missing"), "arg": r.get("arg"),
+                 "detail": r.get("detail")}
                 for r in results if not r.get("ok")]
     if handled:
         bits = []
