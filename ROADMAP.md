@@ -44,7 +44,7 @@ Rules for builders:
 - [ ] **fast path** — skip the agent when every action succeeded and no prose needed (opt-in per skill)
 - [x] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
 - [ ] **date args** — let skills declare a `date` arg the runner resolves from phrases
-- [~] builder-D **chaining test** — prove `depends_on` across two actions end to end
+- [x] builder-D **chaining test** — prove `depends_on` across two actions end to end
 - [ ] **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
 - [x] builder-B **idempotency** — dedup routes by id so a retried hook never double-creates
 - [x] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
