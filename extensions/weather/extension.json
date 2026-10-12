@@ -1,0 +1,16 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "version": "0.1.0",
+  "description": "Current weather for a city via the keyless Open-Meteo API.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["network", "log"],
+  "hooks": ["tools"],
+  "config": {
+    "timeout": 6,
+    "geocode_ttl": 86400,
+    "forecast_ttl": 600
+  }
+}

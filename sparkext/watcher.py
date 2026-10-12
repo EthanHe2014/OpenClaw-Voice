@@ -150,6 +150,8 @@ class Watcher:
             "\u00f7 -> /. Example: '100\u00d73 to the third power' -> expr '100*3**3'.\n"
             "- For music 'volume': put a number 0-100 in `level` (louder->80, "
             "quieter->40, full/max->100, mute->0). Never pass words as the number.\n"
+            "- For weather: put a plain place name in `city` (e.g. 'Beijing', "
+            "'Shanghai', 'San Francisco'); never pass a full sentence.\n"
             "- For times: pass the literal phrase like 'in 20 minutes' / '3pm'; do "
             "NOT compute absolute datetimes yourself.\n"
             "- If a required arg is unknown, put its name in `missing` and do NOT guess.\n"
@@ -178,6 +180,9 @@ class Watcher:
             "  user: \"turn the music up\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"volume\","
             "\"level\":80},\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "  user: \"what's the weather in Beijing\" -> {\"intent\":\"skill\","
+            "\"confidence\":1,\"actions\":[{\"skill\":\"weather\","
+            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],\"chat\":true}\n"
             "  user: \"tell me a joke\" -> {\"intent\":\"chat\",\"confidence\":0.9,"
             "\"actions\":[],\"chat\":true}"
         )
