@@ -24,3 +24,5 @@ Append-only. One line per builder run:
 2026-10-12T11:24+08:00 | builder-B | hot-reload test | ok | 8ff62d6 | 6 pytest cases prove drop/edit/remove folder + broken ext containment via Manager.reload_tick(); no restart, live loop untouched
 2026-10-12T11:31+08:00 | builder-B | idempotency | ok | 0bb72e8 | Registry.run_route dedups by route id via bounded LRU (512); repeat returns prior RESULT with deduped:true; 5 tests; live loop restarted clean (15/15 ext)
 2026-10-12T13:16+08:00 | builder-C | translation | ok | 54828eb | tools-only translate(text/to/from) offline phrasebook (no network scope exists); unit-tested + live hot-load check passed (16/16 ext active)
+2026-10-12T13:22+08:00 | builder-C | skills panel | ok | 924a047 | /skills JSON endpoint + dashboard panel (id/version/state/scopes/hooks/error) fed by EXT_MGR.status()+EXT_REG.catalog(); live restart clean, 16/16 ext, 16 tools, no errors
+2026-10-12T13:23+08:00 | builder-C | note: remaining tool backlog | skip | - | weather/search/mail need network scope (no host HTTP capability) and/or API keys; focus/calendar/photos need TCC permission; left [ ] per contract

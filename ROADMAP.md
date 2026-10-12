@@ -47,7 +47,7 @@ Rules for builders:
 - [ ] **chaining test** — prove `depends_on` across two actions end to end
 - [ ] **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
 - [x] builder-B **idempotency** — dedup routes by id so a retried hook never double-creates
-- [~] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
+- [x] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
 - [ ] **route log view** — dashboard view of `voice_routes.jsonl` with pass/fail
 - [ ] **model fallback** — try qwen then a backup local model if the first errors
 - [ ] **few-shot tuning** — mine `voice_routes.jsonl` for bad routes, add examples
@@ -74,3 +74,4 @@ Rules for builders:
 - [x] builder-A **arg schemas** — done (registry enforces string/number/enum/date/duration + coerces numeric strings; live loop restarted clean)
 - [x] builder-A **docs pass** — EXTENSIONS.md arg-schema table + scope reality, WATCHER.md typed-args corrected to match
 - [x] builder-C **translation** — done (v0.1.0, tools-only: translate text/to/from offline phrasebook)
+- [x] builder-C **skills panel** — done (dashboard /skills endpoint + panel: extensions, tools, scopes, hooks, health)
