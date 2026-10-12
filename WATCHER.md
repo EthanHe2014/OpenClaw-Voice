@@ -119,7 +119,13 @@ system behaves exactly like today. Never worse than current.
 5. **Pronoun / context** — "turn *it* down" needs history. The watcher gets the
    last N turns; `context_used` records what it leaned on.
 6. **Safety** — destructive skills carry `confirm:true`; runner gates on the next
-   utterance being a yes. Scope checks from the manifest still apply.
+   utterance being a yes. Implemented in `sparkext/bridge.py`: when a route is
+   blocked, the bridge stashes it and, on the NEXT utterance, classifies a short
+   reply deterministically (`yes`/`no`/other). Yes re-runs just the blocked
+   actions under a fresh route id (`-confirmed`, so dedup does not suppress them);
+   no drops them; anything else drops the pending route and is handled normally.
+   Covered by `tests/test_bridge.py` (confirm-gate section). Scope checks from the
+   manifest still apply.
 7. **Idempotency** — `id` lets the runner ignore a repeated route (e.g. a retried
    hook) so a reminder is never created twice.
 8. **Error taxonomy** — `unknown_skill`, `bad_args`, `missing_args`, `skill_error`,

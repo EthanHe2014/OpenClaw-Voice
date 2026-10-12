@@ -10,9 +10,50 @@ This is the new front of the pipeline:
 
 Everything is guarded: if the watcher is offline or unsure it degrades to a
 plain passthrough, i.e. exactly the old behaviour. See WATCHER.md.
+
+Confirm gate: a route action marked `confirm: true` is NOT executed by the
+runner; it returns `needs_confirmation`. The bridge remembers the blocked route
+and, on the NEXT utterance, runs it only if the user said yes (and drops it on a
+no). This keeps the gate deterministic and the tools dumb.
 """
 import json
+import re
 import time
+
+
+# Short affirmative / negative replies that resolve a pending confirmation.
+# Deterministic on purpose: the runner gates on the words, not on the model.
+_AFFIRM = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "k",
+           "do it", "go ahead", "go for it", "confirm", "confirmed",
+           "please do", "yes please", "affirmative", "y", "sure thing"}
+_NEGATE = {"no", "nope", "nah", "cancel", "stop", "dont", "do not",
+           "negative", "never mind", "nevermind", "no thanks", "abort", "n"}
+_AFFIRM_HEAD = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "y",
+                "confirm", "affirmative"}
+_NEGATE_HEAD = {"no", "nope", "nah", "cancel", "stop", "dont", "abort", "n"}
+
+
+def _norm(text):
+    """Lowercase, drop punctuation except apostrophes, collapse spaces."""
+    return re.sub(r"[^a-z0-9' ]", "", (text or "").lower()).strip()
+
+
+def _confirmation_verdict(text):
+    """Classify a short reply as 'yes' / 'no' / None (the user moved on)."""
+    t = _norm(text)
+    if not t:
+        return None
+    if t in _AFFIRM:
+        return "yes"
+    if t in _NEGATE:
+        return "no"
+    words = t.split()
+    if len(words) <= 3:
+        if words[0] in _AFFIRM_HEAD:
+            return "yes"
+        if words[0] in _NEGATE_HEAD:
+            return "no"
+    return None
 
 
 class Bridge:
@@ -22,6 +63,7 @@ class Bridge:
         self.watcher = watcher
         self.log_path = log_path
         self.emit = emit
+        self._pending = None   # route blocked on confirmation, awaiting yes/no
 
     def _log_route(self, route, result):
         if not self.log_path:
@@ -42,23 +84,72 @@ class Bridge:
         except Exception:
             pass
 
+    def _emit_result(self, result, route):
+        if not self.emit:
+            return
+        try:
+            if result.get("handled"):
+                self.emit("WATCHER", f"handled {result['handled']}")
+            elif result.get("needs_confirmation"):
+                self.emit("WATCHER", "awaiting confirmation")
+            elif not result.get("failures"):
+                self.emit("WATCHER", f"no skills ({route.get('intent')})")
+        except Exception:
+            pass
+
+    def _collect_pending(self, route):
+        """Remember which actions were blocked by the confirm gate."""
+        idxs = [i for i, a in enumerate(route.get("actions", []))
+                if a.get("confirm")]
+        return {"route": route, "indices": idxs} if idxs else None
+
+    def _run_confirmed(self, pending):
+        """User said yes: run ONLY the previously-blocked actions, confirm
+        cleared, under a fresh route id so dedup does not suppress them."""
+        src = pending["route"]
+        actions = []
+        for i in pending["indices"]:
+            a = dict(src["actions"][i])
+            a["confirm"] = False
+            actions.append(a)
+        route = {"id": (src.get("id") or "r") + "-confirmed",
+                 "transcript": src.get("transcript", ""),
+                 "intent": "skill", "actions": actions, "chat": True}
+        result = self.registry.run_route(route, self.manager)
+        return result, route
+
     def process(self, transcript, history=None):
         """Full pass. Returns (agent_text, result, route)."""
-        route = self.watcher.route(transcript, self.registry.catalog(),
+        text = (transcript or "").strip()
+        # --- resolve a pending confirmation first ---
+        if self._pending:
+            verdict = _confirmation_verdict(text)
+            if verdict == "yes":
+                pending = self._pending
+                self._pending = None
+                result, route = self._run_confirmed(pending)
+                self._log_route(route, result)
+                self._emit_result(result, route)
+                return format_for_agent(text, result), result, route
+            if verdict == "no":
+                self._pending = None
+                result = {"handled": [], "results": [], "failures": [],
+                          "forward_to_agent": True, "needs_confirmation": False}
+                note = ("\n\n[WATCHER] the user DECLINED a pending action. Do not "
+                        "run it. Acknowledge briefly that you will not do it.")
+                return text + note, result, {"intent": "chat", "transcript": text}
+            # anything else: the user moved on; drop the pending route
+            self._pending = None
+        route = self.watcher.route(text, self.registry.catalog(),
                                    history=history)
         if route.get("intent") in ("chat", "noop") or not route.get("actions"):
             # nothing to run: hand the raw text straight to the agent
             return transcript, {"handled": []}, route
         result = self.registry.run_route(route, self.manager)
         self._log_route(route, result)
-        if self.emit:
-            try:
-                if result.get("handled"):
-                    self.emit("WATCHER", f"handled {result['handled']}")
-                elif not result.get("failures"):
-                    self.emit("WATCHER", f"no skills ({route.get('intent')})")
-            except Exception:
-                pass
+        if result.get("needs_confirmation"):
+            self._pending = self._collect_pending(route)
+        self._emit_result(result, route)
         return format_for_agent(transcript, result), result, route
 
 
