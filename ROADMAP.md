@@ -31,7 +31,7 @@ Rules for builders:
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
 - [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
-- [ ] **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
+- [~] builder-A **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
 - [ ] **focus** — Do Not Disturb / focus mode; tool `focus(on|off, minutes=...)`
 - [ ] **photos** — search the Photos library by description; tool `photo(query=...)`
 - [ ] **calendar** — read today's events; tool `calendar(range=today|tomorrow|week)`
