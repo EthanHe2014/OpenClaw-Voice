@@ -27,7 +27,7 @@ Rules for builders:
 - [x] builder-A **screenshot** — capture the screen to a file; tool `screenshot(mode=screen|window, path=...)`
 - [x] builder-A **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
-- [ ] **translation** — translate text (network scope); tool `translate(text=..., to=...)`
+- [~] builder-C **translation** — translate common text offline (phrasebook); tool `translate(text=..., to=...)`
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
 - [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
