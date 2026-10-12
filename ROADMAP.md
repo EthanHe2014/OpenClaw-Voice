@@ -42,7 +42,7 @@ Rules for builders:
 
 - [x] builder-F **failure visibility** — dashboard event + route-log field when a skill fails
 - [ ] **fast path** — skip the agent when every action succeeded and no prose needed (opt-in per skill)
-- [ ] **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
+- [~] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
 - [ ] **date args** — let skills declare a `date` arg the runner resolves from phrases
 - [ ] **chaining test** — prove `depends_on` across two actions end to end
 - [ ] **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
