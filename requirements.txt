@@ -10,3 +10,6 @@ scipy>=1.11
 # Optional: only if you use the streaming sherpa-onnx endpointing path
 # (spark_config.json -> sr_model_dir). Not required for the default setup.
 # sherpa-onnx>=1.10
+
+# Dev/test only (unit tests: ./.venv/bin/python -m pytest)
+pytest>=8
