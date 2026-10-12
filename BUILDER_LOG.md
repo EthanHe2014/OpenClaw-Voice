@@ -21,3 +21,4 @@ Append-only. One line per builder run:
 2026-10-12T09:18+08:00 | builder-A | arg schemas | ok | 12cf803 | registry enforces string/number/enum/date/duration + coerces numeric strings; unit-tested + live restart clean (15/15 ext active)
 2026-10-12T09:21+08:00 | builder-A | docs pass | ok | ede3160 | EXTENSIONS.md arg-schema table + scope note; WATCHER.md typed-args corrected; added bool arg type
 2026-10-12T11:20+08:00 | builder-B | unit tests | ok | 6dce741 | 37 pytest tests for registry/watcher/bridge (typed args, route result, confirm gate, critical abort, passthrough invariants, agent handoff); no live model; live loop untouched
+2026-10-12T11:24+08:00 | builder-B | hot-reload test | ok | 8ff62d6 | 6 pytest cases prove drop/edit/remove folder + broken ext containment via Manager.reload_tick(); no restart, live loop untouched
