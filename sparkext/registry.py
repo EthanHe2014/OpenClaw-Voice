@@ -10,17 +10,21 @@ from collections import OrderedDict
 
 
 class Skill:
-    def __init__(self, name, fn, description="", args=None, ext_id="", speak=False):
+    def __init__(self, name, fn, description="", args=None, ext_id="",
+                 speak=False, fast=False):
         self.name = name
         self.fn = fn                    # fn(args: dict, ctx) -> dict
         self.description = description
         self.args = args or {}          # {arg: {"type":..., "required":bool}}
         self.ext_id = ext_id
         self.speak = speak              # default: skill output is spoken?
+        # opt-in fast path: a route touching only `fast` skills with no prose
+        # (route.chat false) may skip the agent and speak the tool output.
+        self.fast = fast
 
     def catalog_entry(self):
         return {"name": self.name, "description": self.description,
-                "args": self.args}
+                "args": self.args, "fast": bool(self.fast)}
 
 
 def _coerce_arg(vspec, name, value):
@@ -160,7 +164,8 @@ class Registry:
                     name=it.get("name") or f"{ext.id}_skill",
                     fn=it["fn"], description=it.get("description", ""),
                     args=it.get("args", {}), ext_id=ext.id,
-                    speak=bool(it.get("speak", False))))
+                    speak=bool(it.get("speak", False)),
+                    fast=bool(it.get("fast", False))))
         return self
 
     def catalog(self):
@@ -217,6 +222,7 @@ class Registry:
         ctx_by_ext = {e.id: e.ctx for e in manager.extensions.values()}
         results = []; handled = []
         confirm_pending = False
+        all_fast = True       # every action ran a `fast` skill (fast-path gate)
         ok_by_index = []      # index -> did that action succeed
         data_by_index = []    # index -> its `data` dict (for chaining), else None
 
@@ -226,6 +232,9 @@ class Registry:
             data_by_index.append(data)
 
         for i, action in enumerate(route.get("actions", [])):
+            sk = self.skills.get(action.get("skill"))
+            if not sk or not sk.fast:
+                all_fast = False
             dep = action.get("depends_on")
             if dep is not None:
                 # Chaining: a later action consumes an earlier one's OUTPUT.
@@ -263,12 +272,13 @@ class Registry:
                 handled.append(res["skill"])
             elif action.get("on_error") == "abort" and action.get("critical"):
                 break
-        result = _build_result(route, results, handled, confirm_pending)
+        result = _build_result(route, results, handled, confirm_pending,
+                               all_fast=all_fast)
         self._remember(rid, result)
         return result
 
 
-def _build_result(route, results, handled, confirm_pending):
+def _build_result(route, results, handled, confirm_pending, all_fast=False):
     has_output = any(r.get("speak") for r in results if r.get("ok"))
     failures = [{"skill": r.get("skill"), "error": r.get("error"),
                  "missing": r.get("missing"), "arg": r.get("arg"),
@@ -286,12 +296,25 @@ def _build_result(route, results, handled, confirm_pending):
     else:
         note = "The watcher ran nothing; answer the user normally."
     forward = bool(route.get("chat")) or (not has_output)
+    fast_ready = False
+    # Fast path is strictly opt-in: every action must be a `fast` skill, all must
+    # have succeeded, nothing may be pending confirmation, and the route must not
+    # ask for prose (route.chat false) so the tool's own `speak` can be read as-is.
+    oks = [r for r in results if r.get("ok")]
+    if (not forward and route.get("actions") and not confirm_pending
+            and all_fast and not failures
+            and oks and all(r.get("speak") for r in oks)):
+        fast_ready = True
+    fast_speech = (" ".join(str(r.get("speak")) for r in oks)
+                   if fast_ready else None)
     return {
         "v": 1, "id": route.get("id"),
         "user_text": route.get("transcript", ""),
         "results": results, "handled": handled,
         "failures": failures,
         "forward_to_agent": forward,
+        "fast_path": fast_ready,
+        "fast_speech": fast_speech,
         "agent_note": note,
         "needs_confirmation": confirm_pending,
     }

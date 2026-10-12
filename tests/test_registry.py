@@ -218,6 +218,69 @@ def test_forward_to_agent_false_when_pure_skill_with_output():
     assert res["forward_to_agent"] is False
 
 
+# --- fast path (opt-in per skill) -------------------------------------------
+
+def test_fast_path_optin_route_speaks_without_agent():
+    r = Registry()
+    r.register(Skill(name="clock", args={},
+                     fn=lambda a, ctx: {"ok": True, "speak": "It is 4:20"},
+                     ext_id="clock", fast=True))
+    route = {"id": "r-f1", "transcript": "what time is it", "actions":
+             [{"skill": "clock", "args": {}}], "chat": False}
+    res = r.run_route(route, _Mgr(["clock"]))
+    assert res["forward_to_agent"] is False
+    assert res["fast_path"] is True
+    assert res["fast_speech"] == "It is 4:20"
+
+
+def test_fast_path_requires_skill_optin():
+    r = Registry()
+    r.register(Skill(name="clock", args={},
+                     fn=lambda a, ctx: {"ok": True, "speak": "It is 4:20"},
+                     ext_id="clock"))  # fast defaults False
+    route = {"id": "r-f2", "transcript": "what time is it", "actions":
+             [{"skill": "clock", "args": {}}], "chat": False}
+    res = r.run_route(route, _Mgr(["clock"]))
+    assert res["fast_path"] is False and res["fast_speech"] is None
+
+
+def test_fast_path_requires_chat_false():
+    r = Registry()
+    r.register(Skill(name="clock", args={},
+                     fn=lambda a, ctx: {"ok": True, "speak": "It is 4:20"},
+                     ext_id="clock", fast=True))
+    route = {"id": "r-f3", "transcript": "what time is it", "actions":
+             [{"skill": "clock", "args": {}}], "chat": True}
+    res = r.run_route(route, _Mgr(["clock"]))
+    assert res["forward_to_agent"] is True
+    assert res["fast_path"] is False
+
+
+def test_fast_path_needs_all_actions_fast():
+    r = Registry()
+    r.register(Skill(name="clock", args={},
+                     fn=lambda a, ctx: {"ok": True, "speak": "It is 4:20"},
+                     ext_id="clock", fast=True))
+    r.register(Skill(name="other", args={}, fn=lambda a, ctx: {"ok": True},
+                     ext_id="other"))  # not fast
+    route = {"id": "r-f4", "transcript": "x", "actions": [
+        {"skill": "clock", "args": {}}, {"skill": "other", "args": {}}],
+        "chat": False}
+    res = r.run_route(route, _Mgr(["clock", "other"]))
+    assert res["fast_path"] is False
+
+
+def test_fast_path_blocked_by_failure():
+    r = Registry()
+    r.register(Skill(name="clock", args={},
+                     fn=lambda a, ctx: {"ok": False, "error": "skill_error"},
+                     ext_id="clock", fast=True))
+    route = {"id": "r-f5", "transcript": "x", "actions":
+             [{"skill": "clock", "args": {}}], "chat": False}
+    res = r.run_route(route, _Mgr(["clock"]))
+    assert res["fast_path"] is False
+
+
 # --- idempotency ------------------------------------------------------------
 
 def test_repeated_route_id_runs_once():

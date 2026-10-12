@@ -198,12 +198,21 @@ So OpenClaw:
 | `agent_note` | the instruction to the agent (the "taken care of, don't redo" note) |
 | `needs_confirmation` | true ⇒ runner is waiting on a yes/no before acting |
 
-## Fast path (optional)
+## Fast path (opt-in per skill)
 
-If **every** action succeeded and `chat:false` (pure skill, no prose needed), the
-runner can skip OpenClaw entirely and speak `result.speak` straight through. Saves
-a full agent round-trip for trivia like "what time is it". Default stays
-`forward_to_agent:true` until we trust it.
+If **every** action in a route ran a skill that opted into the fast path
+(`fast: true` in its tool decl), all of them succeeded, nothing is pending
+confirmation, and the route asked for **no prose** (`chat:false`), the runner
+sets `fast_path:true` and returns `fast_speech` — the concatenation of the
+skills' own `speak` strings. The voice loop then speaks that directly and skips
+the agent round-trip entirely (saves a full agent call for trivia like
+"what time is it").
+
+The gate is strict on purpose: a single non-`fast` action, a failure, a pending
+confirmation, or `chat:true` keeps `forward_to_agent:true`, so the default
+behaviour is unchanged until a skill explicitly opts in. Covered by
+`tests/test_registry.py` (fast-path section). This is question 3 answered:
+**opt-in per skill**, not global.
 
 ## Open questions to settle
 
@@ -214,5 +223,8 @@ a full agent round-trip for trivia like "what time is it". Default stays
    model errors the route degrades to a plain passthrough (the safe invariant).
 2. **History window** for pronoun resolution — how many turns does the watcher see?
    Settled: 6 (the bridge's `TurnBuffer` default), tunable via `history_size`.
-3. **Fast path** on by default, or opt-in per skill?
+3. **Fast path** on by default, or opt-in per skill? Settled: **opt-in per skill**
+   (`fast: true` in the tool decl). The runner sets `fast_path`/`fast_speech`
+   only when every action is a `fast` skill, all succeeded, none pending
+   confirmation, and `chat:false`; otherwise the agent still phrases the reply.
 4. **Confidence threshold** — 0.7? Tune with the route log.

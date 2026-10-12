@@ -870,10 +870,19 @@ def mic_loop():
                     # all the phrasing. TTS reads OpenClaw's reply.
                     if BRIDGE:
                         text, _wres, _wroute = BRIDGE.process(text)
+                    else:
+                        _wres = None
+                    # Fast path (opt-in per skill): every action ran a `fast`
+                    # skill and no prose was asked, so the tool's own output is
+                    # spoken directly and the agent round-trip is skipped.
+                    _fast = _wres.get("fast_speech") if isinstance(_wres, dict) else None
                     with LOCK: STATE["state"] = "thinking"
-                    start_thinking_loop()          # hum evenly while we wait
-                    reply = ask_spark(text)
-                    stop_thinking_loop()           # finish the current hum first
+                    if _fast:
+                        reply = _fast
+                    else:
+                        start_thinking_loop()      # hum evenly while we wait
+                        reply = ask_spark(text)
+                        stop_thinking_loop()       # finish the current hum first
                     # Stop pressed mid-turn: abandon the reply, go straight back to idle.
                     if _INTERRUPT.is_set() or not reply:
                         with LOCK: STATE["state"] = "idle"
