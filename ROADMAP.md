@@ -41,7 +41,7 @@ Rules for builders:
 ## Backlog — framework refinements
 
 - [x] builder-F **failure visibility** — dashboard event + route-log field when a skill fails
-- [ ] **fast path** — skip the agent when every action succeeded and no prose needed (opt-in per skill)
+- [~] builder-F **fast path** — skip the agent when every action succeeded and no prose needed (opt-in per skill)
 - [x] builder-A **arg schemas** — enforce typed args in the registry (number/enum/date/duration)
 - [ ] **date args** — let skills declare a `date` arg the runner resolves from phrases
 - [x] builder-D **chaining test** — prove `depends_on` across two actions end to end
