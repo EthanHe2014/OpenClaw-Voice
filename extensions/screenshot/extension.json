@@ -1,0 +1,12 @@
+{
+  "id": "screenshot",
+  "name": "Screenshot",
+  "version": "0.1.0",
+  "description": "Capture the screen or the frontmost window to a PNG file, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log"],
+  "hooks": ["tools"],
+  "config": {}
+}
