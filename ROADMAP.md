@@ -28,7 +28,7 @@ Rules for builders:
 - [x] builder-A **spelling** — spell a word / define it (local dict if present); tool `spell(word=...)`
 - [x] builder-F **unitconv** — units/currency conversion; tool `convert(value=..., from=..., to=...)`
 - [x] builder-C **translation** — translate common text offline (phrasebook); tool `translate(text=..., to=...)`
-- [ ] **weather** — current weather (network scope); tool `weather(city=...)`
+- [~] builder-G **weather** — current weather via keyless Open-Meteo (stdlib HTTP); tool `weather(city=...)`
 - [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
 - [x] builder-A **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
