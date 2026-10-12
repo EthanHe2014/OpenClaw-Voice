@@ -22,3 +22,4 @@ Append-only. One line per builder run:
 2026-10-12T09:21+08:00 | builder-A | docs pass | ok | ede3160 | EXTENSIONS.md arg-schema table + scope note; WATCHER.md typed-args corrected; added bool arg type
 2026-10-12T11:20+08:00 | builder-B | unit tests | ok | 6dce741 | 37 pytest tests for registry/watcher/bridge (typed args, route result, confirm gate, critical abort, passthrough invariants, agent handoff); no live model; live loop untouched
 2026-10-12T11:24+08:00 | builder-B | hot-reload test | ok | 8ff62d6 | 6 pytest cases prove drop/edit/remove folder + broken ext containment via Manager.reload_tick(); no restart, live loop untouched
+2026-10-12T11:31+08:00 | builder-B | idempotency | ok | 0bb72e8 | Registry.run_route dedups by route id via bounded LRU (512); repeat returns prior RESULT with deduped:true; 5 tests; live loop restarted clean (15/15 ext)
