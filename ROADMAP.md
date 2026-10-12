@@ -31,7 +31,7 @@ Rules for builders:
 - [ ] **weather** — current weather (network scope); tool `weather(city=...)`
 - [x] builder-A **reminder** — quick reminder via the task engine; tool `reminder(content=..., when=...)`
 - [ ] **search** — web search (network scope, needs key); tool `search(query=...)`
-- [~] builder-A **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
+- [x] builder-A **systemstats** — disk/battery/memory; tool `stats(what=disk|battery|mem|all)`
 - [ ] **focus** — Do Not Disturb / focus mode; tool `focus(on|off, minutes=...)`
 - [ ] **photos** — search the Photos library by description; tool `photo(query=...)`
 - [ ] **calendar** — read today's events; tool `calendar(range=today|tomorrow|week)`
@@ -70,3 +70,4 @@ Rules for builders:
 - [x] builder-A **screenshot** — done (v0.1.0, tools-only: capture screen/frontmost-window via screencapture + osascript)
 - [x] builder-A **spelling** — done (v0.1.0, tools-only: spell letters offline + define via macOS DictionaryServices)
 - [x] builder-A **reminder** — done (v0.1.0, tools-only: parse relative/clock times -> task engine speak)
+- [x] builder-A **systemstats** — done (v0.1.0, tools-only: disk/battery/mem via df/pmset/vm_stat)

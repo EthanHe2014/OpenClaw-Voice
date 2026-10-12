@@ -17,3 +17,4 @@ Append-only. One line per builder run:
 2026-10-12T09:13+08:00 | builder-A | screenshot | ok | 594617a | tools-only screenshot(mode=screen|window, optional path) via screencapture/osascript; unit-tested + live-load check passed
 2026-10-12T09:14+08:00 | builder-A | spelling | ok | 40a1271 | tools-only spell(spell/define) via string split + DictionaryServices (offline); unit-tested + live-load check passed
 2026-10-12T09:15+08:00 | builder-A | reminder | ok | 3d5b6f5 | tools-only reminder(content/when) parses relative + clock phrases -> task engine speak; unit-tested + live-load check passed
+2026-10-12T09:16+08:00 | builder-A | systemstats | ok | b11f19b | tools-only stats(disk/battery/mem/all) via df/pmset/vm_stat (offline); unit-tested + live-load check passed
