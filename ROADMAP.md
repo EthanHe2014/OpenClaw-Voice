@@ -47,7 +47,7 @@ Rules for builders:
 - [ ] **chaining test** — prove `depends_on` across two actions end to end
 - [ ] **confirm gate** — prove `confirm: true` blocks then runs on a spoken yes
 - [x] builder-B **idempotency** — dedup routes by id so a retried hook never double-creates
-- [ ] **skills panel** — dashboard panel listing extensions + tools + scopes + health
+- [~] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
 - [ ] **route log view** — dashboard view of `voice_routes.jsonl` with pass/fail
 - [ ] **model fallback** — try qwen then a backup local model if the first errors
 - [ ] **few-shot tuning** — mine `voice_routes.jsonl` for bad routes, add examples
