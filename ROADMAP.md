@@ -49,7 +49,7 @@ Rules for builders:
 - [x] builder-B **idempotency** — dedup routes by id so a retried hook never double-creates
 - [x] builder-C **skills panel** — dashboard panel listing extensions + tools + scopes + health
 - [x] builder-D **route log view** — dashboard view of `voice_routes.jsonl` with pass/fail
-- [ ] **model fallback** — try qwen then a backup local model if the first errors
+- [~] builder-E **model fallback** — try qwen then a backup local model if the first errors
 - [ ] **few-shot tuning** — mine `voice_routes.jsonl` for bad routes, add examples
 - [x] builder-E **context window** — feed last N turns to the watcher for pronouns ("turn it down")
 - [x] builder-B **unit tests** — pytest suite for registry/watcher/bridge (no live model needed)
