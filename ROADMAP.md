@@ -51,7 +51,7 @@ Rules for builders:
 - [x] builder-D **route log view** — dashboard view of `voice_routes.jsonl` with pass/fail
 - [ ] **model fallback** — try qwen then a backup local model if the first errors
 - [ ] **few-shot tuning** — mine `voice_routes.jsonl` for bad routes, add examples
-- [ ] **context window** — feed last N turns to the watcher for pronouns ("turn it down")
+- [~] builder-E **context window** — feed last N turns to the watcher for pronouns ("turn it down")
 - [x] builder-B **unit tests** — pytest suite for registry/watcher/bridge (no live model needed)
 - [x] builder-B **hot-reload test** — prove dropping a folder loads it without a restart
 - [x] builder-A **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
