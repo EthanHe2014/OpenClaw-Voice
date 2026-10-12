@@ -968,6 +968,8 @@ margin-right:8px;animation:p 1.4s infinite}@keyframes p{50%{opacity:.35}}
     <table id=tk></table></div>
   <div class=pan wide><div class=lbl>extensions <span id=extcount class=sub style="text-transform:none;letter-spacing:0"></span></div>
     <table id=ext></table></div>
+  <div class=pan wide><div class=lbl>watcher routes <span id=routestat class=sub style="text-transform:none;letter-spacing:0"></span></div>
+    <table id=routes></table></div>
   <div class=pan wide><div class=sub id=stat></div></div>
 </div>
 <script>
@@ -1031,6 +1033,24 @@ async function tick(){
     const xe=document.getElementById('ext');
     if(xe._html!==xh){ xe.innerHTML=xh||'<tr><td class=k>no extensions loaded</td></tr>'; xe._html=xh; }
   }catch(e){}
+  try{
+    const r4=await fetch('/routes?'+Date.now(),{cache:'no-store'}); const rr=await r4.json();
+    const stats=rr.stats||{};
+    document.getElementById('routestat').textContent=(stats.total||0)+' routes · '+(stats.ok||0)+' ok · '+(stats.fail||0)+' fail'+(stats.bad_rate!==undefined?' ('+(stats.bad_rate)+'% bad)':'');
+    let rh='';
+    for(const x of (rr.routes||[])){
+      const st=x.ok?'<span class="tk-st completed">ok</span>':'<span class="tk-st cancelled">fail</span>';
+      const acts=(x.actions||[]).length?(x.actions||[]).join('+'):'—';
+      const fails=(x.failures||[]).length?(x.failures||[]).join(','):'';
+      rh+='<tr><td class=k>'+String(x.isa||'').slice(5,16)+'</td>'
+        +'<td>'+String(x.text||'').replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>'+String(x.intent||'').replace(/</g,'&lt;')+'</td>'
+        +'<td class=k>'+acts.replace(/</g,'&lt;')+'</td>'
+        +'<td>'+st+(fails?' <span class=k>'+fails.replace(/</g,'&lt;')+'</span>':'')+'</td></tr>';
+    }
+    const re=document.getElementById('routes');
+    if(re._html!==rh){ re.innerHTML=rh||'<tr><td class=k>no routes logged yet</td></tr>'; re._html=rh; }
+  }catch(e){}
 }
 let _micInit=false;
 async function loadMics(){
@@ -1080,6 +1100,48 @@ setInterval(tick,300);tick();
 
 # --- task DB (read-only) so the dashboard can show new tasks ---
 TASKS_DB = _cfg("tasks_db", os.path.join(ROOT, "data", "openmemo.db"))
+
+def read_routes(limit=40):
+    """Newest watcher routes from voice_routes.jsonl (read-only), plus pass/fail
+    stats over the whole file. Each entry is summarized for the dashboard."""
+    path = os.path.join(ROOT, "voice_routes.jsonl")
+    if not os.path.exists(path):
+        return [], {"total": 0, "ok": 0, "fail": 0, "bad_rate": 0}
+    total = ok = fail = 0
+    tail = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                total += 1
+                handled = [h for h in (r.get("handled") or []) if h]
+                failures = [x for x in (r.get("failures") or []) if x]
+                good = bool(handled) and not failures
+                if good:
+                    ok += 1
+                elif failures:
+                    fail += 1
+                tail.append({
+                    "isa": r.get("isa") or "",
+                    "text": r.get("text") or "",
+                    "intent": r.get("intent") or "",
+                    "actions": [a for a in (r.get("actions") or []) if a],
+                    "handled": handled,
+                    "failures": failures,
+                    "ok": good,
+                })
+    except Exception:
+        return [], {"total": 0, "ok": 0, "fail": 0, "bad_rate": 0}
+    stat = {"total": total, "ok": ok, "fail": fail,
+            "bad_rate": round(100.0 * fail / total, 1) if total else 0}
+    return tail[-limit:][::-1], stat
+
 
 def read_tasks(limit=60):
     """Newest tasks from the scheduler DB (read-only). Returns (tasks, today_count)."""
@@ -1220,6 +1282,13 @@ class H(BaseHTTPRequestHandler):
                 "tool_count": len(tool_map),
                 "tools": {k: sorted(v.keys()) for k, v in tool_map.items()},
             }).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
+        if path == "/routes":
+            routes, stats = read_routes()
+            body = json.dumps({"routes": routes, "stats": stats}).encode()
             self.send_response(200); self.send_header("Content-Type","application/json")
             self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
