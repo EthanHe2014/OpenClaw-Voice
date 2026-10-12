@@ -202,3 +202,59 @@ def test_bridge_feeds_prior_turns_as_history(monkeypatch):
     # first turn: no history; second turn: the first utterance is history
     assert w.hist[0][1] == []
     assert w.hist[1][1] == ["play some music"]
+
+
+# --- model fallback ---------------------------------------------------------
+
+def test_fallback_uses_backup_when_primary_errors(monkeypatch):
+    seen = []
+
+    def _open(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if url.endswith("/api/tags"):
+            return _Resp({"models": []})
+        body = json.loads(req.data.decode())
+        seen.append(body["model"])
+        if body["model"] == "primary":
+            raise OSError("primary down")
+        return _Resp({"message": {"content": json.dumps({
+            "intent": "chat", "confidence": 0.9, "actions": [], "chat": True})}})
+
+    monkeypatch.setattr(watcher_mod.urllib.request, "urlopen", _open)
+    r = Watcher(model="primary", backups=["backup"]).route("hi", SKILLS)
+    assert seen == ["primary", "backup"]        # tried primary, then backup
+    assert r["intent"] == "chat"
+
+
+def test_fallback_passthrough_when_all_models_error(monkeypatch):
+    seen = []
+
+    def _open(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if url.endswith("/api/tags"):
+            return _Resp({"models": []})
+        seen.append(json.loads(req.data.decode())["model"])
+        raise OSError("nope")
+
+    monkeypatch.setattr(watcher_mod.urllib.request, "urlopen", _open)
+    r = Watcher(model="primary", backups=["backup"]).route("hi", SKILLS)
+    assert seen == ["primary", "backup"]
+    assert r["intent"] == "chat"
+    assert "all models" in r["notes"]
+
+
+def test_no_backup_keeps_old_error_note(monkeypatch):
+    def _open(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if url.endswith("/api/tags"):
+            return _Resp({"models": []})
+        raise OSError("down")
+
+    monkeypatch.setattr(watcher_mod.urllib.request, "urlopen", _open)
+    r = Watcher(model="primary").route("hi", SKILLS)
+    assert "router error" in r["notes"]
+    assert "all models" not in r["notes"]      # single model -> old phrasing
+
+
+def test_backup_matching_primary_is_dropped():
+    assert Watcher(model="m", backups=["m", "other"]).backups == ["other"]

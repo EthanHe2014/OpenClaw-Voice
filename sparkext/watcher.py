@@ -91,13 +91,21 @@ class TurnBuffer:
 
 class Watcher:
     def __init__(self, model="qwen2.5:7b", url="http://127.0.0.1:11434",
-                 min_confidence=0.6, timeout=8.0, history=6, verbose=False):
+                 min_confidence=0.6, timeout=8.0, history=6, verbose=False,
+                 backups=None):
         self.model = model
         self.url = url.rstrip("/")
         self.min_confidence = min_confidence
         self.timeout = timeout
         self.history = history
         self.verbose = verbose
+        # Backup local models to try, in order, if the primary errors. All share
+        # the same Ollama server; an uninstalled name just fails and is skipped.
+        self.backups = [m for m in (backups or []) if m and m != model]
+
+    def _models(self):
+        """Models to attempt, primary first."""
+        return [self.model] + list(self.backups)
 
     def available(self):
         """Is the local model server up?"""
@@ -174,8 +182,33 @@ class Watcher:
             "\"actions\":[],\"chat\":true}"
         )
 
+    def _ask(self, model, msgs):
+        """One constrained chat call. Returns the parsed route dict, or raises.
+
+        Keeping this tiny and isolated makes the fallback loop trivial and means
+        a model swap can never touch the surrounding logic.
+        """
+        body = {
+            "model": model,
+            "messages": msgs,
+            "stream": False,
+            "format": ROUTE_SCHEMA,
+            "options": {"temperature": 0},
+        }
+        req = urllib.request.Request(
+            self.url + "/api/chat", data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            resp = json.loads(r.read().decode())
+        content = (resp.get("message") or {}).get("content") or ""
+        return json.loads(content)
+
     def route(self, transcript, skills, history=None):
-        """Return a ROUTE dict. Always returns something usable."""
+        """Return a ROUTE dict. Always returns something usable.
+
+        Tries the primary model, then each backup, and only degrades to a plain
+        passthrough if every model errors (the safe invariant; see WATCHER.md).
+        """
         transcript = (transcript or "").strip()
         if not transcript:
             return _passthrough(transcript, "empty")
@@ -190,23 +223,21 @@ class Watcher:
             msgs.append({"role": "user", "content": str(turn)})
         msgs.append({"role": "user", "content": transcript})
 
-        body = {
-            "model": self.model,
-            "messages": msgs,
-            "stream": False,
-            "format": ROUTE_SCHEMA,
-            "options": {"temperature": 0},
-        }
-        try:
-            req = urllib.request.Request(
-                self.url + "/api/chat", data=json.dumps(body).encode(),
-                headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                resp = json.loads(r.read().decode())
-            content = (resp.get("message") or {}).get("content") or ""
-            data = json.loads(content)
-        except Exception as e:
-            return _passthrough(transcript, f"router error {type(e).__name__}")
+        data = None
+        tried = []
+        for model in self._models():
+            tried.append(model)
+            try:
+                data = self._ask(model, msgs)
+                break
+            except Exception as e:
+                if self.verbose:
+                    print(f"[watcher] model {model} failed: {type(e).__name__}")
+                continue
+        if data is None:
+            why = ("router error all models" if len(tried) > 1 else
+                   "router error")
+            return _passthrough(transcript, why)
 
         # Validate + assemble the envelope.
         conf = float(data.get("confidence", 0) or 0)

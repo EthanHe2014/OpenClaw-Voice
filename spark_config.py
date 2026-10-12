@@ -61,6 +61,10 @@ DEFAULTS = {
     "hook_token_file": ".hook_token", # file holding the hook bearer token
     "reply_file": "voice_reply.txt",
 
+    # --- watcher router (local skill-router LLM) ---
+    "watcher_model": "qwen2.5:7b",       # primary Ollama model for the router
+    "watcher_backup_models": [],          # tried in order if the primary errors
+
     # --- optional HTTP proxy for edge-tts / downloads ---
     "proxy": "",
 }
@@ -81,6 +85,8 @@ ENV_MAP = {
     "SPARK_HOOK_PATH": "hook_path",
     "SPARK_AGENT_ID": "agent_id",
     "SPARK_SESSION_KEY": "session_key",
+    "SPARK_WATCHER_MODEL": "watcher_model",
+    "SPARK_WATCHER_BACKUP_MODELS": "watcher_backup_models",
     "SPARK_PROXY": "proxy",
 }
 
@@ -103,6 +109,10 @@ def _coerce(key, raw):
             return int(raw)
         except (TypeError, ValueError):
             return raw
+    if key == "watcher_backup_models":
+        if isinstance(raw, str):
+            return [m.strip() for m in raw.split(",") if m.strip()]
+        return raw
     return raw
 
 

@@ -145,7 +145,12 @@ system behaves exactly like today. Never worse than current.
     today's behavior. This is the invariant that makes it safe to ship early.
 11. **Constrained decoding** — the watcher emits JSON against this exact schema
     (Ollama structured outputs), so malformed JSON is impossible by construction.
-12. **Observability** — every route is appended to a log so you can see *why* a
+12. **Model fallback** — the router tries the primary model then each configured
+    backup (`watcher_backup_models`) if a call errors (model missing, timeout,
+    bad JSON), and only degrades to passthrough if *all* models fail. Success
+    path is unchanged (`_models()` returns just the primary with no backups).
+    Covered by `tests/test_watcher.py` (model fallback section).
+13. **Observability** — every route is appended to a log so you can see *why* a
     skill fired, and tune the few-shot examples.
 
 ## Document 2 — RESULT (runner -> OpenClaw)
@@ -203,7 +208,10 @@ a full agent round-trip for trivia like "what time is it". Default stays
 ## Open questions to settle
 
 1. **Brain:** local 7–8B (private, needs install) vs gateway flash (robust, ships
-   your speech). My lean: local, with constrained decoding.
+   your speech). My lean: local, with constrained decoding. Resolved enough: the
+   router is local Ollama (`watcher_model`, default `qwen2.5:7b`) with an optional
+   `watcher_backup_models` list tried in order if the primary errors; if every
+   model errors the route degrades to a plain passthrough (the safe invariant).
 2. **History window** for pronoun resolution — how many turns does the watcher see?
    Settled: 6 (the bridge's `TurnBuffer` default), tunable via `history_size`.
 3. **Fast path** on by default, or opt-in per skill?
