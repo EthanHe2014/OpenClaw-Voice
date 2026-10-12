@@ -1,0 +1,12 @@
+{
+  "id": "reminder",
+  "name": "Reminder",
+  "version": "0.1.0",
+  "description": "Schedule a spoken reminder via the task engine, parsing relative and clock times, as data for the agent to speak.",
+  "author": "Ethan",
+  "entry": "extension.py",
+  "enabled": true,
+  "scopes": ["log", "tasks"],
+  "hooks": ["tools"],
+  "config": {}
+}
