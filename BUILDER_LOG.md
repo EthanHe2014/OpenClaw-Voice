@@ -19,3 +19,4 @@ Append-only. One line per builder run:
 2026-10-12T09:15+08:00 | builder-A | reminder | ok | 3d5b6f5 | tools-only reminder(content/when) parses relative + clock phrases -> task engine speak; unit-tested + live-load check passed
 2026-10-12T09:16+08:00 | builder-A | systemstats | ok | b11f19b | tools-only stats(disk/battery/mem/all) via df/pmset/vm_stat (offline); unit-tested + live-load check passed
 2026-10-12T09:18+08:00 | builder-A | arg schemas | ok | 12cf803 | registry enforces string/number/enum/date/duration + coerces numeric strings; unit-tested + live restart clean (15/15 ext active)
+2026-10-12T09:21+08:00 | builder-A | docs pass | ok | ede3160 | EXTENSIONS.md arg-schema table + scope note; WATCHER.md typed-args corrected; added bool arg type

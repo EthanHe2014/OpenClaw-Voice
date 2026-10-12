@@ -54,7 +54,7 @@ Rules for builders:
 - [ ] **context window** — feed last N turns to the watcher for pronouns ("turn it down")
 - [ ] **unit tests** — pytest suite for registry/watcher/bridge (no live model needed)
 - [ ] **hot-reload test** — prove dropping a folder loads it without a restart
-- [~] builder-A **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
+- [x] builder-A **docs pass** — keep EXTENSIONS.md / WATCHER.md / BUILD_AGENT.md current
 
 ## Done (append `[x] <rid>` as jobs finish)
 
@@ -72,3 +72,4 @@ Rules for builders:
 - [x] builder-A **reminder** — done (v0.1.0, tools-only: parse relative/clock times -> task engine speak)
 - [x] builder-A **systemstats** — done (v0.1.0, tools-only: disk/battery/mem via df/pmset/vm_stat)
 - [x] builder-A **arg schemas** — done (registry enforces string/number/enum/date/duration + coerces numeric strings; live loop restarted clean)
+- [x] builder-A **docs pass** — EXTENSIONS.md arg-schema table + scope reality, WATCHER.md typed-args corrected to match
