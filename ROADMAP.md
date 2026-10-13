@@ -36,7 +36,7 @@ Rules for builders:
 - [ ] **photos** — search the Photos library by description; tool `photo(query=...)`
 - [ ] **calendar** — read today's events; tool `calendar(range=today|tomorrow|week)`
 - [ ] **mail** — unread count + quick summary (network scope); tool `mail(command=count|latest)`
-- [ ] **dailybrief** — one-shot morning rundown combining clock+weather+tasks; tool `brief()`
+- [~] builder-A **dailybrief** — one-shot morning rundown combining clock+weather+tasks; tool `brief()`
 
 ## Backlog — framework refinements
 
