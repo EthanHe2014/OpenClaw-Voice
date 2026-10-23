@@ -40,11 +40,44 @@ ROUTE_SCHEMA = {
         },
         "chat": {"type": "boolean"},
         "clarify": {"type": ["string", "null"]},
-        "reply": {"type": ["string", "null"]},
+        "answer": {"type": "boolean"},
         "notes": {"type": "string"}
     },
     "required": ["intent", "confidence", "actions", "chat"]
 }
+
+
+# The composer gets NO example replies: any example becomes a template the model
+# parrots back. It is grounded in the real tool output and free to phrase it.
+COMPOSE_SYSTEM = (
+    "You are Spark, a warm, quick-witted voice assistant talking out loud to "
+    "Ethan. You already ran his request; you are given the ACTUAL result.\n\n"
+    "Write the single thing you will SAY to him, right now, as speech.\n\n"
+    "Rules:\n"
+    "- Speak naturally, the way a friend actually talks. Vary your wording; never "
+    "sound like a template or a form letter.\n"
+    "- Be brief: one or two sentences. This is out loud, not an essay.\n"
+    "- Ground every fact in the result given to you. Never invent a number, time, "
+    "place or outcome. If the result is thin, say less rather than guess.\n"
+    "- Plain spoken English. No markdown, no emoji, no lists, no field names, no "
+    "JSON, no skill names, no 'according to the tool'.\n"
+    "- Do not mention that a tool or skill ran. Just tell him the thing.\n"
+    "- If the result is a question you must ask him (missing information), ask it "
+    "conversationally, in your own words.\n"
+    "- Reply with the spoken words ONLY. No quotes, no preamble."
+)
+
+ASK_SYSTEM = (
+    "You are Spark, a warm voice assistant talking out loud to Ethan.\n\n"
+    "You were about to do what he asked, but you are missing something you need."
+    "\n\nAsk him for it in your own words.\n\n"
+    "Rules:\n"
+    "- One short natural sentence, the way a friend would ask.\n"
+    "- Ask only for what is actually missing. Do not guess an answer.\n"
+    "- Do not say 'parameter', 'argument', 'required field' or any system word.\n"
+    "- Plain spoken English, no markdown, no emoji, no quotes.\n"
+    "- Reply with the spoken words ONLY."
+)
 
 
 def _passthrough(transcript, why):
@@ -53,7 +86,7 @@ def _passthrough(transcript, why):
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "tz": time.strftime("%Z"), "transcript": transcript,
         "intent": "chat", "confidence": 0.0, "actions": [],
-        "chat": True, "clarify": None, "reply": None,
+        "chat": True, "clarify": None, "answer": False,
         "notes": f"passthrough ({why})",
     }
 
@@ -133,8 +166,8 @@ class Watcher:
     def _system_prompt(self, skills, now, tz):
         return (
             "You are the ROUTER for a voice assistant. You decide what should "
-            "happen AND, when you can, you answer the user yourself in `reply`. "
-            "You never run anything: a deterministic runner executes the skills.\n\n"
+            "happen: which skills to run, with which arguments. You do NOT write "
+            "the spoken answer - a separate step phrases it from the real result.\n\n"
             f"Current time: {now}  (timezone {tz})\n\n"
             "Available skills:\n" + self._catalog(skills) + "\n\n"
             "You are also a GRADER/NORMALIZER: you translate the user's spoken "
@@ -154,29 +187,26 @@ class Watcher:
             "\u00f7 -> /. Example: '100\u00d73 to the third power' -> expr '100*3**3'.\n"
             "- For music 'volume': put a number 0-100 in `level` (louder->80, "
             "quieter->40, full/max->100, mute->0). Never pass words as the number.\n"
+            "- For music 'play': `target` may ONLY be filled from what the user "
+            "actually named ('my liked songs' -> 'liked', a song or playlist they "
+            "said). If they just said 'play some music' with no choice, set "
+            "`missing`: [\"target\"] and do NOT invent one - never assume liked songs.\n"
             "- For weather: put a plain place name in `city` (e.g. 'Beijing', "
             "'Shanghai', 'San Francisco'); never pass a full sentence.\n"
             "- For times: pass the literal phrase like 'in 20 minutes' / '3pm'; do "
             "NOT compute absolute datetimes yourself.\n"
-            "- If a required arg is unknown, put its name in `missing` and do NOT guess. "
-            "In that case ALSO write `reply` as your OWN short spoken question asking "
-            "for exactly the missing things, conversationally. Example: user says "
-            "'play some music' and the music skill needs a target -> reply: "
-            "'Sure - what do you want to hear?'.\n"
-            "- `reply` is YOUR OWN spoken answer, not a canned string. Use it when the "
-            "actions fully cover the request (e.g. you ran calculator -> say the "
-            "result naturally). Set `reply` null when the turn needs anything you "
-            "cannot do with the available skills (general knowledge, jokes, opinions, "
-            "chit-chat) so the bigger assistant handles it.\n"
-            "- When you set `reply`, you MUST also set `chat` false: your reply is the "
-            "whole answer and nothing escalates. When `reply` is null, `chat` is true.\n"
-            "- `reply` must be plain spoken English, 1-3 short sentences, no markdown, "
-            "no emoji, no JSON, no skill names.\n"
+            "- If a required arg is unknown, put its name in `missing` and do NOT guess.\n"
+            "- Set `answer` true when the available skills can FULLY satisfy the request "
+            "(the result will be spoken to the user). Set `answer` false when the "
+            "request needs anything the skills cannot do - general knowledge, jokes, "
+            "opinions, reasoning, chit-chat - so the bigger assistant takes it.\n"
+            "- When `answer` is true, also set `chat` false: the turn ends locally. "
+            "When `answer` is false, set `chat` true: the turn escalates.\n"
             "- If the whole request is ambiguous, use intent 'clarify' and put the "
             "question in `clarify`.\n"
             "- Set confidence 0..1. If unsure, prefer 'chat' with low confidence.\n"
-            "- `chat` is governed ONLY by the reply rule above: false when you wrote "
-            "`reply`, true when you did not. Never set chat true alongside a reply.\n"
+            "- `chat` and `answer` must agree: answer true -> chat false; answer false "
+            "-> chat true.\n"
             "- Earlier user turns may appear before the current one as context. \n"
             "  Use them ONLY to resolve pronouns/ellipsis (e.g. 'turn it down' -> \n"
             "  music volume, 'do it again' -> the previous skill). Do NOT act on a \n"
@@ -185,29 +215,30 @@ class Watcher:
             "Examples:\n"
             "  user: \"what's 47 times 89\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"calculator\",\"args\":{\"expr\":\"47*89\"},"
-            "\"on_error\":\"skip\"}],\"chat\":false,\"reply\":\"That's 4183.\"}\n"
-            "  user: \"play some music\" (no target given) -> {\"intent\":\"clarify\","
-            "\"confidence\":1,\"actions\":[],\"chat\":false,"
-            "\"reply\":\"Sure - what do you want to hear?\"}\n"
+            "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
+            "  user: \"play some music\" (target missing) -> {\"intent\":\"clarify\","
+            "\"confidence\":1,\"actions\":[{\"skill\":\"music\","
+            "\"args\":{\"command\":\"play\"},\"missing\":[\"target\"]}],"
+            "\"chat\":false,\"answer\":true}\n"
             "  user: \"what's 100\u00d73 to the third power\" -> {\"intent\":\"skill\","
             "\"confidence\":1,\"actions\":[{\"skill\":\"calculator\","
             "\"args\":{\"expr\":\"100*3**3\"},\"on_error\":\"skip\"}],"
-            "\"chat\":false,\"reply\":\"That comes to 2700.\"}\n"
+            "\"chat\":false,\"answer\":true}\n"
             "  user: \"play my liked songs\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"play\","
             "\"target\":\"liked\"},\"on_error\":\"skip\"}],\"chat\":false,"
-            "\"reply\":\"Playing your liked songs.\"}\n"
+            "\"answer\":true}\n"
             "  user: \"stop the music\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"stop\"},"
-            "\"on_error\":\"skip\"}],\"chat\":false,\"reply\":\"Stopped.\"}\n"
+            "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
             "  user: \"turn the music up\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"volume\","
             "\"level\":80},\"on_error\":\"skip\"}],\"chat\":false,"
-            "\"reply\":\"Turned it up.\"}\n"
+            "\"answer\":true}\n"
             "  user: \"what's the weather in Beijing\" -> {\"intent\":\"skill\","
             "\"confidence\":1,\"actions\":[{\"skill\":\"weather\","
-            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],\"chat\":true,}"
-            "  (no reply there: the runner's output varies, so let the agent phrase it)\n"
+            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],"
+            "\"chat\":false,\"answer\":true}\n"
             "  user: \"tell me a joke\" -> {\"intent\":\"chat\",\"confidence\":0.9,"
             "\"actions\":[],\"chat\":true}"
         )
@@ -299,16 +330,12 @@ class Watcher:
         if intent in ("skill", "mixed") and not actions:
             intent = "chat"
 
-        # The model's own spoken answer. It only counts as a local handler when it
-        # is real prose AND the route does not ask to escalate (`chat` false), so a
-        # stray reply can never silently swallow a turn that wanted the agent.
-        reply = data.get("reply")
-        reply = reply.strip() if isinstance(reply, str) else None
-        if not reply:
-            reply = None
+        # True when the local skills can fully satisfy the turn; the composer then
+        # phrases the REAL tool output and the agent is skipped.
+        answer = bool(data.get("answer", False))
         chat = bool(data.get("chat", True))
-        if reply and chat:
-            chat = False          # a written reply IS the answer
+        if answer:
+            chat = False          # answer and chat are two sides of one switch
 
         return {
             "v": 1, "id": "r-" + uuid.uuid4().hex[:6],
@@ -317,6 +344,85 @@ class Watcher:
             "intent": intent, "confidence": round(conf, 3),
             "actions": actions, "chat": chat,
             "clarify": data.get("clarify"),
-            "reply": reply,
+            "answer": answer,
             "notes": data.get("notes", ""),
         }
+
+    # --- speaking: phrase the REAL outcome, never a template -----------------
+    def _plain(self, text):
+        """Take the model's spoken line and strip anything that is not speech."""
+        t = (text or "").strip()
+        if not t:
+            return None
+        # A model asked for speech sometimes still wraps it in quotes.
+        if len(t) > 1 and t[0] in "\"\u201c'" and t[-1] in "\"\u201d'":
+            t = t[1:-1].strip()
+        t = t.replace("**", "").replace("`", "")
+        if not t:
+            return None
+        # Reject obvious non-speech (JSON, lists, field names) rather than read it.
+        if t.startswith("{") or t.startswith("["):
+            return None
+        if "\n" in t:
+            t = " ".join(part.strip() for part in t.splitlines() if part.strip())
+        return t or None
+
+    def compose(self, transcript, result):
+        """Speak the REAL tool output. Returns None if the model cannot.
+
+        This runs AFTER skills executed, so it phrases actual data instead of
+        guessing. No example replies are provided anywhere: an example becomes a
+        template that a small model parrots back.
+        """
+        parts = []
+        for r in result.get("results") or []:
+            if not r.get("ok"):
+                continue
+            out = r.get("speak")
+            if out is None:
+                out = r.get("data")
+            if out is None:
+                out = "done"
+            if isinstance(out, (dict, list)):
+                out = json.dumps(out, ensure_ascii=False)
+            parts.append(f"{r['skill']}: {out}")
+        if not parts:
+            return None
+        user = (f"Ethan said: {transcript}\n\n"
+                f"The result you got:\n" + "\n".join(parts) +
+                "\n\nNow say it to him out loud.")
+        msgs = [{"role": "system", "content": COMPOSE_SYSTEM},
+                {"role": "user", "content": user}]
+        for model in self._models():
+            try:
+                return self._plain(self._chat_text(model, msgs))
+            except Exception as e:
+                if self.verbose:
+                    print(f"[watcher] compose {model} failed: {type(e).__name__}")
+        return None
+
+    def ask(self, transcript, missing):
+        """Ask the user for exactly what is missing, in the model's own words."""
+        user = (f"Ethan said: {transcript}\n\n"
+                f"You still need: {', '.join(missing)}\n\n"
+                "Ask him for it.")
+        msgs = [{"role": "system", "content": ASK_SYSTEM},
+                {"role": "user", "content": user}]
+        for model in self._models():
+            try:
+                return self._plain(self._chat_text(model, msgs))
+            except Exception as e:
+                if self.verbose:
+                    print(f"[watcher] ask {model} failed: {type(e).__name__}")
+        return None
+
+    def _chat_text(self, model, msgs):
+        """Free-form (unconstrained) chat call returning the raw text."""
+        body = {"model": model, "messages": msgs, "stream": False,
+                "options": {"temperature": 0.7}}
+        req = urllib.request.Request(
+            self.url + "/api/chat", data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            resp = json.loads(r.read().decode())
+        return (resp.get("message") or {}).get("content") or ""

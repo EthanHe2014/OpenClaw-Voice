@@ -18,27 +18,40 @@ Hard rule: **the watcher can degrade to OpenClaw at any point.** If it is unsure
 the JSON is invalid, confidence is low, or it wrote no reply, it emits a plain
 passthrough and the system behaves exactly like before. Never worse than current.
 
-## Local handler (v0.2)
+## Local handler (v0.3) — two phases, never a template
 
-The local model is not just a router. Two behaviours were added:
+The local model is not a router that also writes answers. Writing the words
+*before* the skills run forces it to guess, and any example reply becomes a
+template a small model parrots. So the turn has two phases:
 
-1. **It answers.** `reply` is the model's own spoken answer (not a canned
-   string). When a route has a non-empty `reply` and its actions succeeded, the
-   bridge returns `local_reply` and the voice loop speaks it directly — skipping
-   the OpenClaw round-trip (measured ~2–4 s locally vs a full gateway turn).
-2. **It asks.** When a required arg is unknown, the model puts it in `missing[]`
-   *and* writes `reply` as its own conversational question. Nothing runs, nothing
-   escalates:
-   > user: "play some music" → `{"intent":"clarify","actions":[],"chat":false,
-   > "reply":"Sure - what do you want to hear?"}`
+```
+1. ROUTE    decide which skills + args, and whether skills can FULLY cover it
+            (`answer`). No prose is written here, ever.
+2. RUN      the deterministic runner executes the skills.
+3. COMPOSE  the local model phrases the REAL output in its own words.
+```
 
-`chat` is governed solely by `reply`: **false when a reply was written, true when
-it was not.** A reply is the whole answer; no reply means escalate.
+Compose only runs when the skills actually produced a result. It receives the
+actual data, so it cannot invent a number. If compose returns nothing, the turn
+falls back to OpenClaw — never silence.
 
-Safety: a route whose skills reported a *hard* failure never uses `local_reply`,
-even if a reply was written — the agent still gets the turn so the user is told
-the truth. `missing_args` alone does not block the local question (that case is
-precisely the question). Any exception degrades to passthrough.
+**Asking.** When a required arg is unknown the model marks `missing[]` and the
+tool refuses; the local model then asks for exactly that, in its own words:
+
+> user: "play some music" → route `music(play)` with no target → tool returns
+> `missing_args: [target]` → "Can you tell me what kind of music you're in the
+> mood for?"
+
+Nothing is invented: `target` may only be filled from what the user actually
+named. "my liked songs" → `target: "liked"`; "play some music" → ask.
+
+`chat` is the inverse of `answer`: `answer:true` ⇒ `chat:false` (turn ends
+locally), `answer:false` ⇒ `chat:true` (escalate).
+
+Safety: a route whose skills reported a *hard* failure never composes, even if
+`answer` was true — the agent gets the turn so the user is told the truth.
+`missing_args` alone does not block, because that case *is* the question. Any
+exception degrades to passthrough.
 
 History turns are passed to the model **explicitly labelled** as past context. A
 small model otherwise treats unlabelled prior user turns as part of the current

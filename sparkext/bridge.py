@@ -163,19 +163,23 @@ class Bridge:
         # never duplicated into its own history).
         self.turns.add(text)
 
-        # --- local handler: the model wrote its own answer -------------------
-        # A route with no actions and only a `reply` is the model answering /
-        # asking directly (e.g. a missing-arg question). Nothing to run.
+        # --- local handler: the model chose to finish the turn here ----------
+        # Nothing runnable but the model wants to speak: it must be asking for
+        # missing information (the only local answer possible without a skill).
         if not route.get("actions"):
-            if route.get("reply"):
-                result = {"handled": [], "results": [], "failures": [],
-                          "forward_to_agent": False,
-                          "needs_confirmation": False,
-                          "local_reply": route["reply"],
-                          "agent_note": "answered locally - no agent needed"}
-                self._log_route(route, result)
-                self._emit_result(result, route)
-                return "", result, route
+            if route.get("answer"):
+                missing = route.get("missing") or []
+                reply = self.watcher.ask(text, missing or ["what it needs"]) \
+                    if hasattr(self.watcher, "ask") else None
+                if reply:
+                    result = {"handled": [], "results": [], "failures": [],
+                              "forward_to_agent": False,
+                              "needs_confirmation": False,
+                              "local_reply": reply,
+                              "agent_note": "asked locally - no agent needed"}
+                    self._log_route(route, result)
+                    self._emit_result(result, route)
+                    return "", result, route
             # nothing to run and nothing to say: hand the raw text to the agent
             return transcript, {"handled": []}, route
 
@@ -185,17 +189,29 @@ class Bridge:
             self._pending = self._collect_pending(route)
         self._emit_result(result, route)
 
-        # The model may finish the turn itself. It only does so when it wrote a
-        # reply AND nothing genuinely failed. `missing_args` does NOT block it:
-        # that is exactly the "ask the user for what's missing" case, and the
-        # reply is the question. Any real error falls through to the agent.
+        # --- compose from the REAL output ------------------------------------
+        # The model never writes the answer before the skills run; it would have
+        # to guess. Now that actual data exists, let it phrase that - unless a
+        # hard failure occurred (then the agent gets the turn so the user is told
+        # the truth) or the route chose to escalate.
         hard = [f for f in (result.get("failures") or [])
                 if f.get("error") != "missing_args"]
-        if route.get("reply") and not hard and not result.get("needs_confirmation"):
-            result["local_reply"] = route["reply"]
-            result["forward_to_agent"] = False
-            result["agent_note"] = "handled locally - no agent needed"
-            return "", result, route
+        if route.get("answer") and not hard and not result.get("needs_confirmation"):
+            if not result.get("handled"):
+                # a skill refused for missing args: ask instead of running
+                missing = []
+                for f in (result.get("failures") or []):
+                    missing += (f.get("missing") or [])
+                reply = (self.watcher.ask(text, missing or ["what it needs"])
+                         if hasattr(self.watcher, "ask") else None)
+            else:
+                reply = (self.watcher.compose(text, result)
+                         if hasattr(self.watcher, "compose") else None)
+            if reply:
+                result["local_reply"] = reply
+                result["forward_to_agent"] = False
+                result["agent_note"] = "handled locally - no agent needed"
+                return "", result, route
 
         return format_for_agent(transcript, result), result, route
 

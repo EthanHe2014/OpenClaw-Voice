@@ -33,11 +33,17 @@ def setup(ctx):
         target = (args.get("target") or "").strip()
 
         if cmd in ("play", "resume", "start"):
-            ok, out, err = _run([PLAY, target] if target else [PLAY])
+            # Ask which music instead of silently choosing for the user. The
+            # router may supply a target (e.g. 'liked' for "my liked songs");
+            # with nothing specified the honest move is to ask, not guess.
+            if not target:
+                return {"ok": False, "error": "missing_args",
+                        "missing": ["target"]}
+            ok, out, err = _run([PLAY, target])
             if not ok:
                 return {"ok": False, "error": err or "play failed"}
             return {"ok": True, "data": {
-                "action": "play", "target": target or "liked_songs"}}
+                "action": "play", "target": target}}
 
         if cmd in ("stop", "halt", "pause", "kill"):
             ok, out, err = _run([PLAY, "stop"])

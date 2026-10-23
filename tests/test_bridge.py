@@ -226,81 +226,108 @@ def test_confirmed_run_uses_fresh_route_id():
     assert reg.ran == ["safe", "danger"]      # only the blocked action, re-run
 
 
-# --- local handler: the model answers the turn itself -----------------------
+# --- local handler: compose from the REAL output (two-phase) ----------------
 
-def test_local_reply_skips_agent():
-    """A route with a model-written reply and successful actions is spoken
-    locally: the agent gets nothing (empty text), and the words are returned."""
-    route = {"intent": "skill", "confidence": 1.0,
+class _ComposingWatcher:
+    """Routing watcher that also composes/asks, like the real one."""
+    def __init__(self, route, compose_text="COMPOSED", ask_text="ASKED"):
+        self._route, self.compose_text, self.ask_text = route, compose_text, ask_text
+        self.compose_calls = []
+        self.ask_calls = []
+
+    def route(self, transcript, skills, history=None):
+        return dict(self._route)
+
+    def compose(self, transcript, result):
+        self.compose_calls.append(result)
+        return self.compose_text
+
+    def ask(self, transcript, missing):
+        self.ask_calls.append(missing)
+        return self.ask_text
+
+
+def test_compose_phrases_real_output_then_skips_agent():
+    """The spoken line comes from the composer AFTER the skill ran, not from a
+    guess inside the route."""
+    route = {"intent": "skill", "confidence": 1.0, "answer": True, "chat": False,
              "actions": [{"skill": "calculator", "args": {"expr": "47*89"}}],
-             "transcript": "what's 47 times 89", "chat": False,
-             "reply": "That's 4183."}
+             "transcript": "what's 47 times 89"}
     result = {"handled": ["calculator"],
               "results": [{"skill": "calculator", "ok": True,
                            "data": {"value": 4183}}],
               "failures": []}
-    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    w = _ComposingWatcher(route, compose_text="Forty-one eighty-three.")
+    b = Bridge(_Mgr(), _FakeRegistry(result), w)
     text, res, r = b.process("what's 47 times 89")
-    assert text == ""                       # nothing goes to OpenClaw
-    assert res["local_reply"] == "That's 4183."
+    assert text == ""                                   # OpenClaw skipped
+    assert res["local_reply"] == "Forty-one eighty-three."
     assert res["forward_to_agent"] is False
-    assert "4183" not in text               # not even the handoff note
+    # the composer saw the ACTUAL result, not the transcript alone
+    assert w.compose_calls and "4183" in json.dumps(w.compose_calls[0])
 
 
-def test_local_reply_question_when_nothing_ran():
-    """Missing args: the model asks its own question, no skill runs, no agent."""
-    route = {"intent": "clarify", "confidence": 1.0, "actions": [],
-             "transcript": "play some music", "chat": False,
-             "reply": "Sure - what do you wanna hear?"}
-    reg = _FakeRegistry({"handled": []})
-    b = Bridge(_Mgr(), reg, _FakeWatcher(route))
-    text, res, r = b.process("play some music")
-    assert text == ""
-    assert res["local_reply"] == "Sure - what do you wanna hear?"
-    assert reg.ran is False
-    assert res["forward_to_agent"] is False
-
-
-def test_local_reply_still_asks_when_skill_reports_missing_args():
-    """A skill that refuses for missing_args does not block the local question."""
-    route = {"intent": "skill", "confidence": 1.0,
+def test_ask_when_skill_refuses_for_missing_args():
+    route = {"intent": "clarify", "confidence": 1.0, "answer": True,
+             "chat": False,
              "actions": [{"skill": "music", "args": {"command": "play"}}],
-             "transcript": "play some music", "chat": False,
-             "reply": "What should I play?"}
+             "transcript": "play some music"}
     result = {"handled": [], "results": [],
               "failures": [{"skill": "music", "error": "missing_args",
                             "missing": ["target"]}]}
-    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    w = _ComposingWatcher(route, ask_text="What should I put on?")
+    b = Bridge(_Mgr(), _FakeRegistry(result), w)
     text, res, r = b.process("play some music")
     assert text == ""
-    assert res["local_reply"] == "What should I play?"
+    assert res["local_reply"] == "What should I put on?"
+    assert w.ask_calls == [["target"]]
+    assert w.compose_calls == []
 
 
-def test_hard_failure_forces_agent_despite_reply():
-    """A real skill error must NOT be swallowed by a model reply: the agent is
-    still involved so the user is told the truth."""
-    route = {"intent": "skill", "confidence": 1.0,
+def test_hard_failure_forces_agent_despite_answer():
+    """A real skill error must NOT be papered over: the agent gets the turn."""
+    route = {"intent": "skill", "confidence": 1.0, "answer": True, "chat": False,
              "actions": [{"skill": "weather", "args": {"city": "Nowhere"}}],
-             "transcript": "weather in nowhere", "chat": False,
-             "reply": "It's sunny."}
+             "transcript": "weather in nowhere"}
     result = {"handled": [], "results": [],
               "failures": [{"skill": "weather", "error": "skill_error"}]}
-    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    w = _ComposingWatcher(route)
+    b = Bridge(_Mgr(), _FakeRegistry(result), w)
     text, res, r = b.process("weather in nowhere")
-    assert text != ""                       # agent gets the turn
+    assert text != ""
     assert res.get("local_reply") is None
     assert "FAILED" in text
+    assert w.compose_calls == []            # never invents a happy answer
 
 
-def test_no_reply_still_uses_agent():
-    """The classic path is untouched when the model wrote no reply."""
-    route = {"intent": "skill", "confidence": 1.0,
+def test_escalation_when_model_declines_to_answer():
+    """answer=false keeps the classic handoff: agent phrases from tool output."""
+    route = {"intent": "skill", "confidence": 1.0, "answer": False, "chat": True,
              "actions": [{"skill": "calculator", "args": {"expr": "1+1"}}],
-             "transcript": "1+1", "chat": True, "reply": None}
+             "transcript": "1+1"}
     result = {"handled": ["calculator"],
               "results": [{"skill": "calculator", "ok": True,
                            "data": {"value": 2}}],
               "failures": []}
-    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    w = _ComposingWatcher(route)
+    b = Bridge(_Mgr(), _FakeRegistry(result), w)
     text, res, r = b.process("1+1")
     assert text != "" and "Do NOT call this tool again" in text
+    assert res.get("local_reply") is None
+    assert w.compose_calls == []
+
+
+def test_composer_returning_none_falls_back_to_agent():
+    """If the composer fails, the turn still reaches the agent - never silence."""
+    route = {"intent": "skill", "confidence": 1.0, "answer": True, "chat": False,
+             "actions": [{"skill": "calculator", "args": {"expr": "2+2"}}],
+             "transcript": "2+2"}
+    result = {"handled": ["calculator"],
+              "results": [{"skill": "calculator", "ok": True,
+                           "data": {"value": 4}}],
+              "failures": []}
+    w = _ComposingWatcher(route, compose_text=None)
+    b = Bridge(_Mgr(), _FakeRegistry(result), w)
+    text, res, r = b.process("2+2")
+    assert text != ""                       # degraded to the agent, not silence
+    assert res.get("local_reply") is None
