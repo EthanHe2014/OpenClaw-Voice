@@ -126,6 +126,81 @@ class TurnBuffer:
         return len(self._turns)
 
 
+_RULES = (
+        "You are also a GRADER/NORMALIZER: you translate the user's spoken "
+        "words into the EXACT argument values the skill expects. The skills "
+        "are dumb - they do not understand natural language, so YOU must "
+        "convert. Never pass a natural-language phrase as an argument.\n\n"
+        "Rules:\n"
+        "- If the message maps to one or more skills, list them in `actions` "
+        "with their args. Use intent 'skill' (only skills) or 'mixed' (skills "
+        "plus something to say).\n"
+        "- If it is only conversation, use intent 'chat' with no actions.\n"
+        "- NORMALIZE args to machine form. For calculator 'expr': emit a plain "
+        "arithmetic expression with digits and these only: + - * / ( ) **. "
+        "Convert spoken words: times/multiplied by -> *, plus/add -> +, "
+        "minus/take away -> -, divided by/over -> /, % -> %, 'squared' -> **2, "
+        "'cubed' -> **3, 'to the Nth power' -> **N, and the symbols x/\u00d7 -> *, "
+        "\u00f7 -> /. Example: '100\u00d73 to the third power' -> expr '100*3**3'.\n"
+        "- For music 'volume': put a number 0-100 in `level` (louder->80, "
+        "quieter->40, full/max->100, mute->0). Never pass words as the number.\n"
+        "- For music 'play': `target` may ONLY be filled from what the user "
+        "actually named ('my liked songs' -> 'liked', a song or playlist they "
+        "said). If they just said 'play some music' with no choice, set "
+        "`missing`: [\"target\"] and do NOT invent one - never assume liked songs.\n"
+        "- For weather: put a plain place name in `city` (e.g. 'Beijing', "
+        "'Shanghai', 'San Francisco'); never pass a full sentence.\n"
+        "- For times: pass the literal phrase like 'in 20 minutes' / '3pm'; do "
+        "NOT compute absolute datetimes yourself.\n"
+        "- If a required arg is unknown, put its name in `missing` and do NOT guess.\n"
+        "- Set `answer` true when the available skills can FULLY satisfy the request "
+        "(the result will be spoken to the user). Set `answer` false when the "
+        "request needs anything the skills cannot do - general knowledge, jokes, "
+        "opinions, reasoning, chit-chat - so the bigger assistant takes it.\n"
+        "- When `answer` is true, also set `chat` false: the turn ends locally. "
+        "When `answer` is false, set `chat` true: the turn escalates.\n"
+        "- If the whole request is ambiguous, use intent 'clarify' and put the "
+        "question in `clarify`.\n"
+        "- Set confidence 0..1. If unsure, prefer 'chat' with low confidence.\n"
+        "- `chat` and `answer` must agree: answer true -> chat false; answer false "
+        "-> chat true.\n"
+        "- Earlier user turns may appear before the current one as context. \n"
+        "  Use them ONLY to resolve pronouns/ellipsis (e.g. 'turn it down' -> \n"
+        "  music volume, 'do it again' -> the previous skill). Do NOT act on a \n"
+        "  previous request again; route only what the CURRENT turn asks. When \n"
+        "  you lean on a prior turn, name it in `context_used`.\n\n"
+        "Examples:\n"
+        "  user: \"what's 47 times 89\" -> {\"intent\":\"skill\",\"confidence\":1,"
+        "\"actions\":[{\"skill\":\"calculator\",\"args\":{\"expr\":\"47*89\"},"
+        "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
+        "  user: \"play some music\" (target missing) -> {\"intent\":\"clarify\","
+        "\"confidence\":1,\"actions\":[{\"skill\":\"music\","
+        "\"args\":{\"command\":\"play\"},\"missing\":[\"target\"]}],"
+        "\"chat\":false,\"answer\":true}\n"
+        "  user: \"what's 100\u00d73 to the third power\" -> {\"intent\":\"skill\","
+        "\"confidence\":1,\"actions\":[{\"skill\":\"calculator\","
+        "\"args\":{\"expr\":\"100*3**3\"},\"on_error\":\"skip\"}],"
+        "\"chat\":false,\"answer\":true}\n"
+        "  user: \"play my liked songs\" -> {\"intent\":\"skill\",\"confidence\":1,"
+        "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"play\","
+        "\"target\":\"liked\"},\"on_error\":\"skip\"}],\"chat\":false,"
+        "\"answer\":true}\n"
+        "  user: \"stop the music\" -> {\"intent\":\"skill\",\"confidence\":1,"
+        "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"stop\"},"
+        "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
+        "  user: \"turn the music up\" -> {\"intent\":\"skill\",\"confidence\":1,"
+        "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"volume\","
+        "\"level\":80},\"on_error\":\"skip\"}],\"chat\":false,"
+        "\"answer\":true}\n"
+        "  user: \"what's the weather in Beijing\" -> {\"intent\":\"skill\","
+        "\"confidence\":1,\"actions\":[{\"skill\":\"weather\","
+        "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],"
+        "\"chat\":false,\"answer\":true}\n"
+        "  user: \"tell me a joke\" -> {\"intent\":\"chat\",\"confidence\":0.9,"
+        "\"actions\":[],\"chat\":true}"
+)
+
+
 class Watcher:
     def __init__(self, model="qwen2.5:7b", url="http://127.0.0.1:11434",
                  min_confidence=0.6, timeout=8.0, history=6, verbose=False,
@@ -163,85 +238,22 @@ class Watcher:
             lines.append(f"- {s['name']}: {s.get('description','')}  args[{args}]")
         return "\n".join(lines) if lines else "(no skills available)"
 
-    def _system_prompt(self, skills, now, tz):
-        return (
+    def _system_prompt(self, skills, now=None, tz=None):
+        """Build the routing prompt.
+
+        The catalog and rules are the slow, cacheable part, so they are kept
+        byte-identical between turns. The clock is NOT embedded: it changes every
+        minute and would invalidate Ollama's prefix cache, turning a ~3s call into
+        a ~20s one (measured). Skills that need the time call `ctx.now()`
+        themselves, and relative phrases are resolved downstream.
+        """
+        head = (
             "You are the ROUTER for a voice assistant. You decide what should "
             "happen: which skills to run, with which arguments. You do NOT write "
             "the spoken answer - a separate step phrases it from the real result.\n\n"
-            f"Current time: {now}  (timezone {tz})\n\n"
             "Available skills:\n" + self._catalog(skills) + "\n\n"
-            "You are also a GRADER/NORMALIZER: you translate the user's spoken "
-            "words into the EXACT argument values the skill expects. The skills "
-            "are dumb - they do not understand natural language, so YOU must "
-            "convert. Never pass a natural-language phrase as an argument.\n\n"
-            "Rules:\n"
-            "- If the message maps to one or more skills, list them in `actions` "
-            "with their args. Use intent 'skill' (only skills) or 'mixed' (skills "
-            "plus something to say).\n"
-            "- If it is only conversation, use intent 'chat' with no actions.\n"
-            "- NORMALIZE args to machine form. For calculator 'expr': emit a plain "
-            "arithmetic expression with digits and these only: + - * / ( ) **. "
-            "Convert spoken words: times/multiplied by -> *, plus/add -> +, "
-            "minus/take away -> -, divided by/over -> /, % -> %, 'squared' -> **2, "
-            "'cubed' -> **3, 'to the Nth power' -> **N, and the symbols x/\u00d7 -> *, "
-            "\u00f7 -> /. Example: '100\u00d73 to the third power' -> expr '100*3**3'.\n"
-            "- For music 'volume': put a number 0-100 in `level` (louder->80, "
-            "quieter->40, full/max->100, mute->0). Never pass words as the number.\n"
-            "- For music 'play': `target` may ONLY be filled from what the user "
-            "actually named ('my liked songs' -> 'liked', a song or playlist they "
-            "said). If they just said 'play some music' with no choice, set "
-            "`missing`: [\"target\"] and do NOT invent one - never assume liked songs.\n"
-            "- For weather: put a plain place name in `city` (e.g. 'Beijing', "
-            "'Shanghai', 'San Francisco'); never pass a full sentence.\n"
-            "- For times: pass the literal phrase like 'in 20 minutes' / '3pm'; do "
-            "NOT compute absolute datetimes yourself.\n"
-            "- If a required arg is unknown, put its name in `missing` and do NOT guess.\n"
-            "- Set `answer` true when the available skills can FULLY satisfy the request "
-            "(the result will be spoken to the user). Set `answer` false when the "
-            "request needs anything the skills cannot do - general knowledge, jokes, "
-            "opinions, reasoning, chit-chat - so the bigger assistant takes it.\n"
-            "- When `answer` is true, also set `chat` false: the turn ends locally. "
-            "When `answer` is false, set `chat` true: the turn escalates.\n"
-            "- If the whole request is ambiguous, use intent 'clarify' and put the "
-            "question in `clarify`.\n"
-            "- Set confidence 0..1. If unsure, prefer 'chat' with low confidence.\n"
-            "- `chat` and `answer` must agree: answer true -> chat false; answer false "
-            "-> chat true.\n"
-            "- Earlier user turns may appear before the current one as context. \n"
-            "  Use them ONLY to resolve pronouns/ellipsis (e.g. 'turn it down' -> \n"
-            "  music volume, 'do it again' -> the previous skill). Do NOT act on a \n"
-            "  previous request again; route only what the CURRENT turn asks. When \n"
-            "  you lean on a prior turn, name it in `context_used`.\n\n"
-            "Examples:\n"
-            "  user: \"what's 47 times 89\" -> {\"intent\":\"skill\",\"confidence\":1,"
-            "\"actions\":[{\"skill\":\"calculator\",\"args\":{\"expr\":\"47*89\"},"
-            "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
-            "  user: \"play some music\" (target missing) -> {\"intent\":\"clarify\","
-            "\"confidence\":1,\"actions\":[{\"skill\":\"music\","
-            "\"args\":{\"command\":\"play\"},\"missing\":[\"target\"]}],"
-            "\"chat\":false,\"answer\":true}\n"
-            "  user: \"what's 100\u00d73 to the third power\" -> {\"intent\":\"skill\","
-            "\"confidence\":1,\"actions\":[{\"skill\":\"calculator\","
-            "\"args\":{\"expr\":\"100*3**3\"},\"on_error\":\"skip\"}],"
-            "\"chat\":false,\"answer\":true}\n"
-            "  user: \"play my liked songs\" -> {\"intent\":\"skill\",\"confidence\":1,"
-            "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"play\","
-            "\"target\":\"liked\"},\"on_error\":\"skip\"}],\"chat\":false,"
-            "\"answer\":true}\n"
-            "  user: \"stop the music\" -> {\"intent\":\"skill\",\"confidence\":1,"
-            "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"stop\"},"
-            "\"on_error\":\"skip\"}],\"chat\":false,\"answer\":true}\n"
-            "  user: \"turn the music up\" -> {\"intent\":\"skill\",\"confidence\":1,"
-            "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"volume\","
-            "\"level\":80},\"on_error\":\"skip\"}],\"chat\":false,"
-            "\"answer\":true}\n"
-            "  user: \"what's the weather in Beijing\" -> {\"intent\":\"skill\","
-            "\"confidence\":1,\"actions\":[{\"skill\":\"weather\","
-            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],"
-            "\"chat\":false,\"answer\":true}\n"
-            "  user: \"tell me a joke\" -> {\"intent\":\"chat\",\"confidence\":0.9,"
-            "\"actions\":[],\"chat\":true}"
         )
+        return head + _RULES
 
     def _ask(self, model, msgs):
         """One constrained chat call. Returns the parsed route dict, or raises.
@@ -255,6 +267,10 @@ class Watcher:
             "stream": False,
             "format": ROUTE_SCHEMA,
             "options": {"temperature": 0},
+            # Keep the model resident. Ollama unloads after ~5 min idle, and a cold
+            # load plus a fresh ~2k-token prefix costs ~20s (measured) versus ~3s
+            # warm. This is what made every turn appear to "go to OpenClaw".
+            "keep_alive": "12h",
         }
         req = urllib.request.Request(
             self.url + "/api/chat", data=json.dumps(body).encode(),
@@ -293,19 +309,27 @@ class Watcher:
 
         data = None
         tried = []
+        last_err = None
         for model in self._models():
             tried.append(model)
             try:
                 data = self._ask(model, msgs)
                 break
             except Exception as e:
+                last_err = e
                 if self.verbose:
                     print(f"[watcher] model {model} failed: {type(e).__name__}")
                 continue
         if data is None:
             why = ("router error all models" if len(tried) > 1 else
                    "router error")
-            return _passthrough(transcript, why)
+            # Name the real cause. A bare "passthrough" hides a timeout behind
+            # silence, which is how the 15s-vs-21s bug went unnoticed for days.
+            note = f"passthrough ({why}: {type(last_err).__name__})" \
+                if last_err else f"passthrough ({why})"
+            r = _passthrough(transcript, note)
+            r["notes"] = note
+            return r
 
         # Validate + assemble the envelope.
         conf = float(data.get("confidence", 0) or 0)
@@ -419,7 +443,7 @@ class Watcher:
     def _chat_text(self, model, msgs):
         """Free-form (unconstrained) chat call returning the raw text."""
         body = {"model": model, "messages": msgs, "stream": False,
-                "options": {"temperature": 0.7}}
+                "options": {"temperature": 0.7}, "keep_alive": "12h"}
         req = urllib.request.Request(
             self.url + "/api/chat", data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"}, method="POST")

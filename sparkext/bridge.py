@@ -181,6 +181,8 @@ class Bridge:
                     self._emit_result(result, route)
                     return "", result, route
             # nothing to run and nothing to say: hand the raw text to the agent
+            self._log_route(route, {"handled": []})
+            self._emit_result({"handled": [], "failures": []}, route)
             return transcript, {"handled": []}, route
 
         result = self.registry.run_route(route, self.manager)

@@ -1342,7 +1342,8 @@ def init_extensions():
         if isinstance(_backups, str):
             _backups = [m.strip() for m in _backups.split(",") if m.strip()]
         watcher = Watcher(model=_cfg("watcher_model", "qwen2.5:7b"),
-                          timeout=15.0, backups=_backups)
+                          timeout=float(_cfg("watcher_timeout", 60.0)),
+                          backups=_backups)
         if watcher.available():
             # warm the local model so the first real turn is not slow
             threading.Thread(target=lambda: watcher.route("warm up", reg.catalog()),
