@@ -876,8 +876,14 @@ def mic_loop():
                     # skill and no prose was asked, so the tool's own output is
                     # spoken directly and the agent round-trip is skipped.
                     _fast = _wres.get("fast_speech") if isinstance(_wres, dict) else None
+                    # Local handler: the local model finished the turn itself and
+                    # wrote the words. `text` came back empty, so there is nothing
+                    # to send to OpenClaw - speak the model's own reply.
+                    _local = _wres.get("local_reply") if isinstance(_wres, dict) else None
                     with LOCK: STATE["state"] = "thinking"
-                    if _fast:
+                    if _local:
+                        reply = _local
+                    elif _fast:
                         reply = _fast
                     else:
                         start_thinking_loop()      # hum evenly while we wait

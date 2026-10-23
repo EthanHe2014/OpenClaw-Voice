@@ -128,6 +128,9 @@ class Bridge:
     def process(self, transcript, history=None):
         """Full pass. Returns (agent_text, result, route).
 
+        `agent_text` is "" when the local model handled the turn itself; the
+        spoken words are then in `result["local_reply"]` and OpenClaw is skipped.
+
         `history` may be passed explicitly (tests); otherwise the bridge's own
         bounded turn buffer is used, so pronouns resolve across live turns.
         """
@@ -159,14 +162,41 @@ class Bridge:
         # Record the turn for the NEXT one (after routing, so the current turn is
         # never duplicated into its own history).
         self.turns.add(text)
-        if route.get("intent") in ("chat", "noop") or not route.get("actions"):
-            # nothing to run: hand the raw text straight to the agent
+
+        # --- local handler: the model wrote its own answer -------------------
+        # A route with no actions and only a `reply` is the model answering /
+        # asking directly (e.g. a missing-arg question). Nothing to run.
+        if not route.get("actions"):
+            if route.get("reply"):
+                result = {"handled": [], "results": [], "failures": [],
+                          "forward_to_agent": False,
+                          "needs_confirmation": False,
+                          "local_reply": route["reply"],
+                          "agent_note": "answered locally - no agent needed"}
+                self._log_route(route, result)
+                self._emit_result(result, route)
+                return "", result, route
+            # nothing to run and nothing to say: hand the raw text to the agent
             return transcript, {"handled": []}, route
+
         result = self.registry.run_route(route, self.manager)
         self._log_route(route, result)
         if result.get("needs_confirmation"):
             self._pending = self._collect_pending(route)
         self._emit_result(result, route)
+
+        # The model may finish the turn itself. It only does so when it wrote a
+        # reply AND nothing genuinely failed. `missing_args` does NOT block it:
+        # that is exactly the "ask the user for what's missing" case, and the
+        # reply is the question. Any real error falls through to the agent.
+        hard = [f for f in (result.get("failures") or [])
+                if f.get("error") != "missing_args"]
+        if route.get("reply") and not hard and not result.get("needs_confirmation"):
+            result["local_reply"] = route["reply"]
+            result["forward_to_agent"] = False
+            result["agent_note"] = "handled locally - no agent needed"
+            return "", result, route
+
         return format_for_agent(transcript, result), result, route
 
 

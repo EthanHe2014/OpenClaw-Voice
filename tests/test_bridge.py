@@ -224,3 +224,83 @@ def test_confirmed_run_uses_fresh_route_id():
     b.process("yes")
     assert seen_ids == ["r-c4-confirmed"]
     assert reg.ran == ["safe", "danger"]      # only the blocked action, re-run
+
+
+# --- local handler: the model answers the turn itself -----------------------
+
+def test_local_reply_skips_agent():
+    """A route with a model-written reply and successful actions is spoken
+    locally: the agent gets nothing (empty text), and the words are returned."""
+    route = {"intent": "skill", "confidence": 1.0,
+             "actions": [{"skill": "calculator", "args": {"expr": "47*89"}}],
+             "transcript": "what's 47 times 89", "chat": False,
+             "reply": "That's 4183."}
+    result = {"handled": ["calculator"],
+              "results": [{"skill": "calculator", "ok": True,
+                           "data": {"value": 4183}}],
+              "failures": []}
+    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    text, res, r = b.process("what's 47 times 89")
+    assert text == ""                       # nothing goes to OpenClaw
+    assert res["local_reply"] == "That's 4183."
+    assert res["forward_to_agent"] is False
+    assert "4183" not in text               # not even the handoff note
+
+
+def test_local_reply_question_when_nothing_ran():
+    """Missing args: the model asks its own question, no skill runs, no agent."""
+    route = {"intent": "clarify", "confidence": 1.0, "actions": [],
+             "transcript": "play some music", "chat": False,
+             "reply": "Sure - what do you wanna hear?"}
+    reg = _FakeRegistry({"handled": []})
+    b = Bridge(_Mgr(), reg, _FakeWatcher(route))
+    text, res, r = b.process("play some music")
+    assert text == ""
+    assert res["local_reply"] == "Sure - what do you wanna hear?"
+    assert reg.ran is False
+    assert res["forward_to_agent"] is False
+
+
+def test_local_reply_still_asks_when_skill_reports_missing_args():
+    """A skill that refuses for missing_args does not block the local question."""
+    route = {"intent": "skill", "confidence": 1.0,
+             "actions": [{"skill": "music", "args": {"command": "play"}}],
+             "transcript": "play some music", "chat": False,
+             "reply": "What should I play?"}
+    result = {"handled": [], "results": [],
+              "failures": [{"skill": "music", "error": "missing_args",
+                            "missing": ["target"]}]}
+    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    text, res, r = b.process("play some music")
+    assert text == ""
+    assert res["local_reply"] == "What should I play?"
+
+
+def test_hard_failure_forces_agent_despite_reply():
+    """A real skill error must NOT be swallowed by a model reply: the agent is
+    still involved so the user is told the truth."""
+    route = {"intent": "skill", "confidence": 1.0,
+             "actions": [{"skill": "weather", "args": {"city": "Nowhere"}}],
+             "transcript": "weather in nowhere", "chat": False,
+             "reply": "It's sunny."}
+    result = {"handled": [], "results": [],
+              "failures": [{"skill": "weather", "error": "skill_error"}]}
+    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    text, res, r = b.process("weather in nowhere")
+    assert text != ""                       # agent gets the turn
+    assert res.get("local_reply") is None
+    assert "FAILED" in text
+
+
+def test_no_reply_still_uses_agent():
+    """The classic path is untouched when the model wrote no reply."""
+    route = {"intent": "skill", "confidence": 1.0,
+             "actions": [{"skill": "calculator", "args": {"expr": "1+1"}}],
+             "transcript": "1+1", "chat": True, "reply": None}
+    result = {"handled": ["calculator"],
+              "results": [{"skill": "calculator", "ok": True,
+                           "data": {"value": 2}}],
+              "failures": []}
+    b = Bridge(_Mgr(), _FakeRegistry(result), _FakeWatcher(route))
+    text, res, r = b.process("1+1")
+    assert text != "" and "Do NOT call this tool again" in text

@@ -1,12 +1,14 @@
-"""Watcher — the LLM skill-router.
+"""Watcher — the local LLM handler.
 
 Sees the STT transcript (+ a little history), decides what should happen, and
-emits a ROUTE (see WATCHER.md). It NEVER runs a skill itself.
+emits a ROUTE (see WATCHER.md). It never runs a skill itself (the deterministic
+runner does), but it MAY finish the turn: when the route fully covers what the
+user asked, it writes its own spoken `reply` and OpenClaw is skipped entirely.
 
 Brain: a local model via Ollama, called with a JSON-schema constraint so the
 output physically cannot be malformed. On ANY problem (model down, timeout,
-bad JSON, low confidence) it returns a plain PASSTHROUGH route — the system then
-behaves exactly like before. This is the invariant that makes it safe.
+bad JSON, low confidence, no reply) it returns a plain PASSTHROUGH route — the
+system then behaves exactly like before. This is the invariant that makes it safe.
 """
 import json
 import time
@@ -38,6 +40,7 @@ ROUTE_SCHEMA = {
         },
         "chat": {"type": "boolean"},
         "clarify": {"type": ["string", "null"]},
+        "reply": {"type": ["string", "null"]},
         "notes": {"type": "string"}
     },
     "required": ["intent", "confidence", "actions", "chat"]
@@ -50,7 +53,8 @@ def _passthrough(transcript, why):
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "tz": time.strftime("%Z"), "transcript": transcript,
         "intent": "chat", "confidence": 0.0, "actions": [],
-        "chat": True, "clarify": None, "notes": f"passthrough ({why})",
+        "chat": True, "clarify": None, "reply": None,
+        "notes": f"passthrough ({why})",
     }
 
 
@@ -128,9 +132,9 @@ class Watcher:
 
     def _system_prompt(self, skills, now, tz):
         return (
-            "You are the ROUTER for a voice assistant. You do NOT answer the user "
-            "and you do NOT run anything. You only decide what should happen and "
-            "emit JSON.\n\n"
+            "You are the ROUTER for a voice assistant. You decide what should "
+            "happen AND, when you can, you answer the user yourself in `reply`. "
+            "You never run anything: a deterministic runner executes the skills.\n\n"
             f"Current time: {now}  (timezone {tz})\n\n"
             "Available skills:\n" + self._catalog(skills) + "\n\n"
             "You are also a GRADER/NORMALIZER: you translate the user's spoken "
@@ -154,11 +158,25 @@ class Watcher:
             "'Shanghai', 'San Francisco'); never pass a full sentence.\n"
             "- For times: pass the literal phrase like 'in 20 minutes' / '3pm'; do "
             "NOT compute absolute datetimes yourself.\n"
-            "- If a required arg is unknown, put its name in `missing` and do NOT guess.\n"
+            "- If a required arg is unknown, put its name in `missing` and do NOT guess. "
+            "In that case ALSO write `reply` as your OWN short spoken question asking "
+            "for exactly the missing things, conversationally. Example: user says "
+            "'play some music' and the music skill needs a target -> reply: "
+            "'Sure - what do you want to hear?'.\n"
+            "- `reply` is YOUR OWN spoken answer, not a canned string. Use it when the "
+            "actions fully cover the request (e.g. you ran calculator -> say the "
+            "result naturally). Set `reply` null when the turn needs anything you "
+            "cannot do with the available skills (general knowledge, jokes, opinions, "
+            "chit-chat) so the bigger assistant handles it.\n"
+            "- When you set `reply`, you MUST also set `chat` false: your reply is the "
+            "whole answer and nothing escalates. When `reply` is null, `chat` is true.\n"
+            "- `reply` must be plain spoken English, 1-3 short sentences, no markdown, "
+            "no emoji, no JSON, no skill names.\n"
             "- If the whole request is ambiguous, use intent 'clarify' and put the "
             "question in `clarify`.\n"
             "- Set confidence 0..1. If unsure, prefer 'chat' with low confidence.\n"
-            "- Set `chat` true if a spoken reply is still wanted (almost always true).\n"
+            "- `chat` is governed ONLY by the reply rule above: false when you wrote "
+            "`reply`, true when you did not. Never set chat true alongside a reply.\n"
             "- Earlier user turns may appear before the current one as context. \n"
             "  Use them ONLY to resolve pronouns/ellipsis (e.g. 'turn it down' -> \n"
             "  music volume, 'do it again' -> the previous skill). Do NOT act on a \n"
@@ -167,22 +185,29 @@ class Watcher:
             "Examples:\n"
             "  user: \"what's 47 times 89\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"calculator\",\"args\":{\"expr\":\"47*89\"},"
-            "\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"on_error\":\"skip\"}],\"chat\":false,\"reply\":\"That's 4183.\"}\n"
+            "  user: \"play some music\" (no target given) -> {\"intent\":\"clarify\","
+            "\"confidence\":1,\"actions\":[],\"chat\":false,"
+            "\"reply\":\"Sure - what do you want to hear?\"}\n"
             "  user: \"what's 100\u00d73 to the third power\" -> {\"intent\":\"skill\","
             "\"confidence\":1,\"actions\":[{\"skill\":\"calculator\","
-            "\"args\":{\"expr\":\"100*3**3\"},\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"args\":{\"expr\":\"100*3**3\"},\"on_error\":\"skip\"}],"
+            "\"chat\":false,\"reply\":\"That comes to 2700.\"}\n"
             "  user: \"play my liked songs\" -> {\"intent\":\"skill\",\"confidence\":1,"
-            "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"play\"},"
-            "\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"play\","
+            "\"target\":\"liked\"},\"on_error\":\"skip\"}],\"chat\":false,"
+            "\"reply\":\"Playing your liked songs.\"}\n"
             "  user: \"stop the music\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"stop\"},"
-            "\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"on_error\":\"skip\"}],\"chat\":false,\"reply\":\"Stopped.\"}\n"
             "  user: \"turn the music up\" -> {\"intent\":\"skill\",\"confidence\":1,"
             "\"actions\":[{\"skill\":\"music\",\"args\":{\"command\":\"volume\","
-            "\"level\":80},\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"level\":80},\"on_error\":\"skip\"}],\"chat\":false,"
+            "\"reply\":\"Turned it up.\"}\n"
             "  user: \"what's the weather in Beijing\" -> {\"intent\":\"skill\","
             "\"confidence\":1,\"actions\":[{\"skill\":\"weather\","
-            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],\"chat\":true}\n"
+            "\"args\":{\"city\":\"Beijing\"},\"on_error\":\"skip\"}],\"chat\":true,}"
+            "  (no reply there: the runner's output varies, so let the agent phrase it)\n"
             "  user: \"tell me a joke\" -> {\"intent\":\"chat\",\"confidence\":0.9,"
             "\"actions\":[],\"chat\":true}"
         )
@@ -225,7 +250,14 @@ class Watcher:
         msgs = [{"role": "system", "content": self._system_prompt(
             skills, time.strftime("%Y-%m-%d %H:%M"), time.strftime("%Z"))}]
         for turn in (history or [])[-self.history:]:
-            msgs.append({"role": "user", "content": str(turn)})
+            # Label prior turns explicitly. Unlabelled user messages make a small
+            # model treat them as part of the current request and re-run their
+            # skills (observed: actions accumulating turn after turn).
+            msgs.append({"role": "user", "content":
+                         f"[earlier turn, already answered - do NOT repeat or act on "
+                         f"this] {turn}"})
+            msgs.append({"role": "assistant", "content":
+                         "[noted as past context only]"})
         msgs.append({"role": "user", "content": transcript})
 
         data = None
@@ -267,12 +299,24 @@ class Watcher:
         if intent in ("skill", "mixed") and not actions:
             intent = "chat"
 
+        # The model's own spoken answer. It only counts as a local handler when it
+        # is real prose AND the route does not ask to escalate (`chat` false), so a
+        # stray reply can never silently swallow a turn that wanted the agent.
+        reply = data.get("reply")
+        reply = reply.strip() if isinstance(reply, str) else None
+        if not reply:
+            reply = None
+        chat = bool(data.get("chat", True))
+        if reply and chat:
+            chat = False          # a written reply IS the answer
+
         return {
             "v": 1, "id": "r-" + uuid.uuid4().hex[:6],
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "tz": time.strftime("%Z"), "transcript": transcript,
             "intent": intent, "confidence": round(conf, 3),
-            "actions": actions, "chat": bool(data.get("chat", True)),
+            "actions": actions, "chat": chat,
             "clarify": data.get("clarify"),
+            "reply": reply,
             "notes": data.get("notes", ""),
         }

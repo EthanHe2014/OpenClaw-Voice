@@ -1,27 +1,48 @@
 # WATCHER contract — the skill-router JSON
 
-Status: design v0.1. Author: Spark + Ethan.
+Status: design v0.2. Author: Spark + Ethan.
 
 ## The idea
 
-The watcher (a small LLM) sees the STT transcript and does **one** thing: decide
-what should happen, and emit a **route** as JSON. It never runs a skill. A
-deterministic **runner** executes the route, then hands a **result** block to
-OpenClaw, which writes the spoken reply.
+The watcher (a small LLM) sees the STT transcript and decides what should happen.
+It emits a **route** as JSON and never runs a skill itself (a deterministic
+runner does), but it **may finish the turn**: when its route fully covers the
+request it writes its own spoken `reply` and OpenClaw is skipped entirely.
 
 ```
-STT ─► WATCHER (LLM, JSON-constrained) ─► route.json ─► RUNNER (python)
-                                                          │
-                                          result.json ◄───┘
-                                                          │
-                       OpenClaw hook: user_text + note + tool_output
-                                                          │
-                                                     plain text ─► TTS
+STT ─► WATCHER (LLM, JSON) ─┬─► reply present ──────────────► speak it (no agent)
+                           └─► reply null ─► RUNNER ─► tool output ─► OpenClaw ─► TTS
 ```
 
 Hard rule: **the watcher can degrade to OpenClaw at any point.** If it is unsure,
-the JSON is invalid, or confidence is low, it emits a plain passthrough and the
-system behaves exactly like today. Never worse than current.
+the JSON is invalid, confidence is low, or it wrote no reply, it emits a plain
+passthrough and the system behaves exactly like before. Never worse than current.
+
+## Local handler (v0.2)
+
+The local model is not just a router. Two behaviours were added:
+
+1. **It answers.** `reply` is the model's own spoken answer (not a canned
+   string). When a route has a non-empty `reply` and its actions succeeded, the
+   bridge returns `local_reply` and the voice loop speaks it directly — skipping
+   the OpenClaw round-trip (measured ~2–4 s locally vs a full gateway turn).
+2. **It asks.** When a required arg is unknown, the model puts it in `missing[]`
+   *and* writes `reply` as its own conversational question. Nothing runs, nothing
+   escalates:
+   > user: "play some music" → `{"intent":"clarify","actions":[],"chat":false,
+   > "reply":"Sure - what do you want to hear?"}`
+
+`chat` is governed solely by `reply`: **false when a reply was written, true when
+it was not.** A reply is the whole answer; no reply means escalate.
+
+Safety: a route whose skills reported a *hard* failure never uses `local_reply`,
+even if a reply was written — the agent still gets the turn so the user is told
+the truth. `missing_args` alone does not block the local question (that case is
+precisely the question). Any exception degrades to passthrough.
+
+History turns are passed to the model **explicitly labelled** as past context. A
+small model otherwise treats unlabelled prior user turns as part of the current
+request and re-runs their skills (observed: actions accumulating across turns).
 
 ## Document 1 — ROUTE (watcher -> runner)
 
