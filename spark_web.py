@@ -845,6 +845,13 @@ def mic_loop():
                     text = transcribe_audio(p)
                     with LOCK: STATE["last_transcript"] = text
                     add_event("STT", text or "(empty)")
+                    _t_stt = time.time() - _tcap
+                    # The transcript is on screen from here on. Anything after
+                    # this point is NOT transcription, so the state must stop
+                    # claiming to transcribe - otherwise a slow watcher/agent
+                    # looks like slow speech recognition.
+                    with LOCK: STATE["state"] = "routing"
+                    _t_route0 = time.time()
                     low = (text or "").lower()
                     # Noise guard: a transcript that is ONLY a bracketed tag like
                     # "(bell ding)" / "(music)" is non-speech — ignore it entirely
@@ -872,6 +879,8 @@ def mic_loop():
                         text, _wres, _wroute = BRIDGE.process(text)
                     else:
                         _wres = None
+                    _t_route = time.time() - _t_route0
+                    add_event("INFO", f"timing: stt {_t_stt:.2f}s  route {_t_route:.2f}s")
                     # Fast path (opt-in per skill): every action ran a `fast`
                     # skill and no prose was asked, so the tool's own output is
                     # spoken directly and the agent round-trip is skipped.
@@ -881,6 +890,7 @@ def mic_loop():
                     # to send to OpenClaw - speak the model's own reply.
                     _local = _wres.get("local_reply") if isinstance(_wres, dict) else None
                     with LOCK: STATE["state"] = "thinking"
+                    _t_think0 = time.time()
                     if _local:
                         reply = _local
                     elif _fast:
@@ -889,6 +899,8 @@ def mic_loop():
                         start_thinking_loop()      # hum evenly while we wait
                         reply = ask_spark(text)
                         stop_thinking_loop()       # finish the current hum first
+                    add_event("INFO", f"timing: answer {time.time()-_t_think0:.2f}s"
+                              f" ({'local' if (_local or _fast) else 'agent'})")
                     # Stop pressed mid-turn: abandon the reply, go straight back to idle.
                     if _INTERRUPT.is_set() or not reply:
                         with LOCK: STATE["state"] = "idle"
@@ -1000,7 +1012,9 @@ async function tick(){
     document.getElementById('score').textContent=s.score.toFixed(2);
     document.getElementById('scorefill').style.width=Math.min(100,s.score*100)+'%';
     document.getElementById('scorep').textContent='peak '+s.score_peak.toFixed(2);
-    document.getElementById('stage').textContent=s.state||'idle';
+    document.getElementById('stage').textContent=({idle:'idle',listening:'listening',
+      transcribing:'transcribing',routing:'choosing a tool',thinking:'thinking',
+      speaking:'speaking'}[s.state]||s.state||'idle');
     document.getElementById('tr').textContent=s.last_transcript||'—';
     document.getElementById('rp').textContent=s.last_reply||'—';
     const evHtml=s.events.slice().reverse().map(e=>
